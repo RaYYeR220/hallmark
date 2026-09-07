@@ -44,6 +44,13 @@ export type RunRecord = {
   scoredCount: number
   okCount: number
   protocolOkCount: number
+  /**
+   * The strict census verdict for the whole agent: at least one endpoint is a
+   * working agent protocol. This is the number Hallmark quotes publicly.
+   */
+  protocolLive: boolean
+  /** Which protocols were live, for the funnel breakdown. */
+  protocolLiveKinds: string[]
   failures: Partial<Record<FailureClass, number>>
   kinds: string[]
   latencies: number[]
@@ -103,6 +110,8 @@ export function toRunRecord(run: ProbeRun): RunRecord {
     scoredCount: scored.length,
     okCount: scored.filter((p) => p.ok).length,
     protocolOkCount: scored.filter((p) => p.protocolOk).length,
+    protocolLive: scored.some((p) => p.protocolLive),
+    protocolLiveKinds: [...new Set(scored.filter((p) => p.protocolLive).map((p) => p.kind))].sort(),
     failures: countFailures(bundle.probe),
     kinds: [...new Set(bundle.probe.map((p) => p.kind))].sort(),
     latencies: scored.filter((p) => p.ok).map((p) => p.latencyMs),

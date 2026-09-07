@@ -207,6 +207,8 @@ function toStub(run: { chainId: number; agentId: number; score: number; evidence
     scoredCount: 0,
     okCount: 0,
     protocolOkCount: 0,
+    protocolLive: false,
+    protocolLiveKinds: [],
     failures: {},
     kinds: [],
     latencies: [],

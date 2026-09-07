@@ -122,6 +122,9 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
           return {
             ok: true,
             protocolOk: false,
+            // A decodable challenge is a working x402 rail, which is one of the
+            // three things the strict census counts.
+            protocolLive: true,
             failure: null,
             detail: `HTTP 402 with an x402 v${parsed.challenge.x402Version} challenge; agent card is behind payment`,
             status: res.status,
@@ -135,6 +138,7 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
       const outcome: ProtocolOutcome = {
         ok: false,
         protocolOk: false,
+        protocolLive: false,
         failure: res.failure,
         detail: res.detail,
         status: res.status,
@@ -157,6 +161,9 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
         return {
           ok: true,
           protocolOk: true,
+          // The census counts an A2A face only when it declares actual skills.
+          // Enabled capabilities alone make the card valid, not the agent hireable.
+          protocolLive: card.skills.length > 0,
           failure: null,
           detail: null,
           status: res.status,
@@ -171,6 +178,7 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
       bestNonCard ??= {
         ok: false,
         protocolOk: false,
+        protocolLive: false,
         failure: 'bad-protocol',
         detail: problem,
         status: res.status,
@@ -187,6 +195,7 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
     bestNonCard ??= {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure,
       detail: html
         ? 'returned an HTML page where an A2A agent card was declared'
@@ -204,6 +213,7 @@ export async function probeA2A(endpoint: string, opts: HttpOptions = {}): Promis
   return {
     ok: false,
     protocolOk: false,
+    protocolLive: false,
     failure: 'unsupported-scheme',
     detail: `no http(s) URL to probe for "${endpoint}"`,
     status: null,

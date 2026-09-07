@@ -68,6 +68,9 @@ export async function probeX402(endpoint: string, opts: HttpOptions = {}): Promi
         // advertised, so it counts as reachable even though it is a 4xx.
         ok: true,
         protocolOk: status === 402,
+        // A decodable challenge is the whole test; the status code only
+        // decides whether the server framed it correctly.
+        protocolLive: true,
         failure: null,
         detail:
           status === 402
@@ -85,6 +88,7 @@ export async function probeX402(endpoint: string, opts: HttpOptions = {}): Promi
     return {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure: res.status === 402 ? 'bad-protocol' : res.failure,
       detail: res.status === 402 ? 'answered 402 but carried no parseable x402 challenge' : res.detail,
       status: res.status,
@@ -97,6 +101,7 @@ export async function probeX402(endpoint: string, opts: HttpOptions = {}): Promi
   return {
     ok: false,
     protocolOk: false,
+    protocolLive: false,
     failure: 'bad-protocol',
     detail: `declared x402 but answered HTTP ${res.status} with no payment challenge`,
     status: res.status,

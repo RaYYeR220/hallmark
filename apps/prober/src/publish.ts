@@ -81,6 +81,10 @@ export const HALLMARK_TAG = 'hallmark'
 
 export const DEFAULT_VALIDATION_TAG = 'reachable'
 
+const PROTOCOL_LIVE_REFUSAL =
+  'no endpoint is protocol-live (a valid A2A card with skills, an MCP server that enumerated tools, ' +
+  'or a decodable x402 challenge); a reachable web page is not an agent. Pass --allow-web-only to override.'
+
 const NO_ATTESTOR = 'no attestor address: set ATTESTOR_PRIVATE_KEY, or pass --as <address> to plan a dry run'
 const NO_VALIDATOR = 'no validator address: set VALIDATOR_PRIVATE_KEY, or pass --as <address> to plan a dry run'
 
@@ -162,6 +166,12 @@ export type PublisherOptions = {
   /** Override the fee, in wei. Otherwise the node's `eth_gasPrice` is used. */
   gasPriceWei?: bigint
   minScore?: number
+  /**
+   * Publish only agents that pass the strict protocol-live test. Defaults to
+   * true, because a `web` face returning HTML is the single largest source of
+   * a false "alive" reading and we refuse to put that on chain.
+   */
+  requireProtocolLive?: boolean
   feedbackTag?: FeedbackTag
   validationTag?: string
   /**
@@ -199,6 +209,7 @@ export function createPublisher(options: PublisherOptions): Publisher {
   const client = reader.client as PublicClient
   const dryRun = options.dryRun !== false
   const minScore = options.minScore ?? 1
+  const requireProtocolLive = options.requireProtocolLive !== false
   const feedbackTag: FeedbackTag = options.feedbackTag ?? 'reachable'
   const validationTag = options.validationTag ?? DEFAULT_VALIDATION_TAG
 
@@ -214,10 +225,15 @@ export function createPublisher(options: PublisherOptions): Publisher {
     validatorAccount !== null &&
     attestorAccount.address.toLowerCase() !== validatorAccount.address.toLowerCase()
   ) {
-    logger.warn('attestor and validator keys differ; HallmarkHook only credits evidence from the attestor address', {
-      attestor: attestorAccount.address,
-      validator: validatorAccount.address,
-    })
+    logger.error('='.repeat(78))
+    logger.error('ATTESTOR AND VALIDATOR ARE DIFFERENT ADDRESSES. THE FUNDING GATE WILL NEVER OPEN.')
+    logger.error(`  attestor  ${attestorAccount.address}`)
+    logger.error(`  validator ${validatorAccount.address}`)
+    logger.error('  HallmarkHook._reputationEvidence reads getSummary(agentId, [attestor], "reachable", "")')
+    logger.error('  and HallmarkHook._validationEvidence requires validator == attestor, so evidence written')
+    logger.error('  by any other address is invisible to the gate no matter how much of it you publish.')
+    logger.error('  Set ATTESTOR_PRIVATE_KEY and VALIDATOR_PRIVATE_KEY to the same key.')
+    logger.error('='.repeat(78))
   }
 
   // A dry run only needs an address to check pre-conditions against; a real
@@ -428,6 +444,9 @@ export function createPublisher(options: PublisherOptions): Publisher {
       if (runRecord.score < minScore) {
         return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
       }
+      if (requireProtocolLive && !runRecord.protocolLive) {
+        return skip(plan, PROTOCOL_LIVE_REFUSAL)
+      }
       if (encoded.value <= 0n) {
         return skip(
           plan,
@@ -557,6 +576,9 @@ export function createPublisher(options: PublisherOptions): Publisher {
       if (runRecord.score < minScore) {
         return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
       }
+      if (requireProtocolLive && !runRecord.protocolLive) {
+        return skip(plan, PROTOCOL_LIVE_REFUSAL)
+      }
       const priceRefusal = gasPriceRefusal(price)
       if (priceRefusal !== null) return skip(plan, priceRefusal)
 
@@ -656,6 +678,9 @@ export function createPublisher(options: PublisherOptions): Publisher {
       if (attestorAddress === null) return skip(plan, NO_ATTESTOR)
       if (runRecord.score < minScore) {
         return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
+      }
+      if (requireProtocolLive && !runRecord.protocolLive) {
+        return skip(plan, PROTOCOL_LIVE_REFUSAL)
       }
       const priceRefusal = gasPriceRefusal(price)
       if (priceRefusal !== null) return skip(plan, priceRefusal)

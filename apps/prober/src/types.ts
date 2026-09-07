@@ -74,6 +74,15 @@ export type EndpointProbe = {
   failure: FailureClass | null
   /** Answered 2xx *and* spoke the protocol it declared. */
   protocolOk: boolean
+  /**
+   * The strict census verdict: this endpoint is a working *agent* protocol.
+   *
+   * True only for an A2A card with a non-empty `skills` array, an MCP server
+   * that completed `initialize` and enumerated at least one tool, or an x402
+   * endpoint that served a decodable challenge. A `web` face returning HTML is
+   * never protocol-live, however healthy it looks.
+   */
+  protocolLive: boolean
   /** False for endpoints that cannot be contacted over HTTP; excluded from the score. */
   scored: boolean
   /** Every URL contacted on this endpoint's behalf, in order. */
@@ -100,6 +109,8 @@ export type ProtocolOutcome = {
   ok: boolean
   /** It answered *and* the answer was well-formed for the protocol it declared. */
   protocolOk: boolean
+  /** The strict census verdict. See `EndpointProbe.protocolLive`. */
+  protocolLive: boolean
   failure: FailureClass | null
   detail: string | null
   status: number | null

@@ -26,6 +26,7 @@ export async function probeWeb(endpoint: string, opts: HttpOptions = {}): Promis
         return {
           ok: true,
           protocolOk: true,
+          protocolLive: true,
           failure: null,
           detail: `HTTP 402 with an x402 v${parsed.challenge.x402Version} challenge (${parsed.source})`,
           status: res.status,
@@ -39,6 +40,7 @@ export async function probeWeb(endpoint: string, opts: HttpOptions = {}): Promis
     return {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure: res.failure,
       detail: res.detail,
       status: res.status,
@@ -54,6 +56,9 @@ export async function probeWeb(endpoint: string, opts: HttpOptions = {}): Promis
   return {
     ok: true,
     protocolOk: hasBody,
+    // A web face is never an agent protocol, however healthy the page looks.
+    // This is the single largest source of a false "alive" reading.
+    protocolLive: false,
     failure: null,
     detail: hasBody ? `${shape}, ${res.bytes} bytes` : `HTTP ${res.status} with an empty body`,
     status: res.status,

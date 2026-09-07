@@ -28,6 +28,8 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
     scoredCount: 3,
     okCount: 2,
     protocolOkCount: 2,
+    protocolLive: true,
+    protocolLiveKinds: ['mcp'],
     failures: { 'http-4xx': 1 },
     kinds: ['a2a', 'mcp', 'web'],
     latencies: [120, 340],

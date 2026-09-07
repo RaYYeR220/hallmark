@@ -142,6 +142,7 @@ export async function probeMcp(endpoint: string, opts: HttpOptions = {}): Promis
     return {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure: init.failure,
       detail: init.detail,
       status: init.status,
@@ -159,6 +160,7 @@ export async function probeMcp(endpoint: string, opts: HttpOptions = {}): Promis
     return {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure: 'bad-protocol',
       detail:
         'answered JSON-RPC but the initialize result carries no protocolVersion, serverInfo or capabilities, so it is not an MCP server',
@@ -173,6 +175,7 @@ export async function probeMcp(endpoint: string, opts: HttpOptions = {}): Promis
     return {
       ok: false,
       protocolOk: false,
+      protocolLive: false,
       failure: html ? 'not-json' : 'bad-protocol',
       detail:
         initResponse?.error !== undefined
@@ -224,8 +227,16 @@ export async function probeMcp(endpoint: string, opts: HttpOptions = {}): Promis
     requests,
   } as const
 
+  // The strict census counts an MCP face only when it enumerated at least one
+  // tool. A server that greets you and then exposes nothing is reachable and
+  // conformant, but there is nothing there to hire.
   if (!list.ok) {
-    return { ...handshake, detail: `initialize succeeded; tools/list failed (${list.failure})`, capabilities: {} }
+    return {
+      ...handshake,
+      protocolLive: false,
+      detail: `initialize succeeded; tools/list failed (${list.failure})`,
+      capabilities: {},
+    }
   }
 
   const listResponse = parseJsonRpcBody(list.text, list.contentType, 2)
@@ -234,10 +245,11 @@ export async function probeMcp(endpoint: string, opts: HttpOptions = {}): Promis
       listResponse?.error !== undefined
         ? `tools/list returned JSON-RPC error ${listResponse.error.code ?? '?'}`
         : 'tools/list did not return a JSON-RPC result'
-    return { ...handshake, detail: `initialize succeeded; ${reason}`, capabilities: {} }
+    return { ...handshake, protocolLive: false, detail: `initialize succeeded; ${reason}`, capabilities: {} }
   }
 
-  return { ...handshake, detail: null, capabilities: { mcpTools: extractToolNames(listResponse.result) } }
+  const tools = extractToolNames(listResponse.result)
+  return { ...handshake, protocolLive: tools.length > 0, detail: null, capabilities: { mcpTools: tools } }
 }
 
 /* ------------------------------------------------------------------ */

@@ -30,12 +30,14 @@ import { formatEther } from 'viem'
 const USAGE = `hallmark-probe — ERC-8004 liveness prober for BNB Smart Chain
 
 usage
-  hallmark-probe sweep    [--chain 56|97] [--sample N | --recent N | --from A --to B | --agent 1,2,3]
+  hallmark-probe sweep    [--chain 56|97] [--sample N | --recent N | --from A --to B
+                                          | --agent 1,2,3 | --agents-file ids.txt]
                           [--seed S] [--concurrency C] [--max-id N] [--timeout MS] [--json]
   hallmark-probe probe    --agent <id> [--chain 56|97] [--json]
   hallmark-probe publish  [--chain 56|97] [--commit] [--budget-wei N] [--min-score N]
                           [--agent <id>] [--limit N] [--kind reputation|hook|validation|all]
-                          [--tag reachable|uptime|responsetime] [--as 0x<sender>] [--json]
+                          [--tag reachable|uptime|responsetime] [--as 0x<sender>]
+                          [--allow-web-only] [--json]
   hallmark-probe verify   <0x-evidence-hash | https://…/api/evidence/0x…> [--chain 56|97] [--json]
   hallmark-probe stats    [--chain 56|97] [--json]
   hallmark-probe serve    [--port N]
@@ -70,6 +72,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     options: {
       chain: { type: 'string' },
       agent: { type: 'string' },
+      'agents-file': { type: 'string' },
       sample: { type: 'string' },
       recent: { type: 'string' },
       from: { type: 'string' },
@@ -78,6 +81,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       concurrency: { type: 'string' },
       'max-id': { type: 'string' },
       timeout: { type: 'string' },
+      'card-timeout': { type: 'string' },
       limit: { type: 'string' },
       kind: { type: 'string' },
       tag: { type: 'string' },
@@ -95,6 +99,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       quiet: { type: 'boolean' },
       'no-store': { type: 'boolean' },
       'no-dns': { type: 'boolean' },
+      'allow-web-only': { type: 'boolean' },
     },
   })
 
@@ -156,7 +161,7 @@ async function runSweep(deps: CommandDeps): Promise<number> {
     ...optionalNumber(values, 'to', 'to'),
     ...optionalNumber(values, 'max-id', 'maxId'),
     ...(typeof values['seed'] === 'string' ? { seed: values['seed'] } : {}),
-    ...(values['agent'] === undefined ? {} : { agentIds: parseIdList(String(values['agent'])) }),
+    ...(await explicitIds(values)),
   })
 
   if (selection.agentIds.length === 0) {
@@ -245,6 +250,7 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     store,
     dryRun: !commit,
     minScore,
+    requireProtocolLive: values['allow-web-only'] !== true,
     feedbackTag: tag,
     ...(values['gas-price-wei'] === undefined ? {} : { gasPriceWei: BigInt(String(values['gas-price-wei'])) }),
     ...(values['as'] === undefined ? {} : { plannerAddress: asAddress(values['as']) }),
@@ -267,6 +273,7 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     chain: chainId,
     agents: candidates.length,
     kinds: kind,
+    strict: values['allow-web-only'] === true ? 'off (--allow-web-only)' : 'protocol-live required',
     attestor: publisher.attestor ?? '(unset)',
     validator: publisher.validator ?? '(unset)',
     tag,
@@ -410,6 +417,9 @@ function buildConfig(values: Values, logger: Logger): ProberConfig {
   if (typeof values['store'] === 'string') overrides.storeDir = values['store']
   if (values['concurrency'] !== undefined) overrides.probe = { ...overrides.probe, concurrency: Number(values['concurrency']) }
   if (values['timeout'] !== undefined) overrides.probe = { ...overrides.probe, timeoutMs: Number(values['timeout']) }
+  if (values['card-timeout'] !== undefined) {
+    overrides.probe = { ...overrides.probe, cardTimeoutMs: Number(values['card-timeout']) }
+  }
   if (values['port'] !== undefined) overrides.port = Number(values['port'])
   if (values['no-dns'] === true) {
     logger.warn('DNS checks disabled; a public hostname pointing at private space will not be caught')
@@ -453,6 +463,26 @@ function optionalNumber(values: Values, key: string, as: string): Record<string,
   const parsed = Number(raw)
   if (!Number.isFinite(parsed)) throw new Error(`--${key} must be a number`)
   return { [as]: Math.trunc(parsed) }
+}
+
+/**
+ * Agent ids from `--agent 1,2,3` or `--agents-file ids.txt`. The file form
+ * exists because re-probing a few thousand agents is a normal operation and a
+ * few thousand ids do not fit on a Windows command line.
+ */
+async function explicitIds(values: Values): Promise<{ agentIds?: number[] }> {
+  const raws: string[] = []
+  if (values['agent'] !== undefined) raws.push(String(values['agent']))
+  if (values['agents-file'] !== undefined) {
+    const { readFile } = await import('node:fs/promises')
+    raws.push(await readFile(String(values['agents-file']), 'utf8'))
+  }
+  if (raws.length === 0) return {}
+  const agentIds = parseIdList(raws.join(','))
+  if (agentIds.length === 0) {
+    throw new Error('--agent / --agents-file matched no valid agent ids')
+  }
+  return { agentIds }
 }
 
 function parseIdList(raw: string): number[] {

@@ -33,6 +33,19 @@ export type SweepStats = {
   fullyReachable: number
   /** At least one endpoint answered *and* spoke its declared protocol. */
   protocolConformant: number
+  /**
+   * The strict metric, and the one Hallmark quotes publicly: at least one
+   * endpoint is a working agent protocol — an A2A card with a non-empty
+   * `skills` array, an MCP server that enumerated tools, or a decodable x402
+   * challenge. A `web` face returning HTML never counts.
+   */
+  protocolLiveAgents: number
+  /** Agents that declare a machine-callable protocol at all. The funnel's denominator. */
+  declaringAgents: number
+  /** How many of the live agents were live via each protocol. */
+  protocolLiveByKind: Record<string, number>
+  /** Distinct hostnames serving a live agent protocol. */
+  protocolLiveHosts: string[]
   endpoints: { declared: number; scoreable: number; answered: number; protocolOk: number }
   failures: Record<FailureClass, number>
   kinds: Record<string, number>
@@ -49,6 +62,18 @@ export type SweepStats = {
 
 const SCORE_BUCKETS = ['0', '1-24', '25-49', '50-74', '75-89', '90-100'] as const
 
+/** Endpoint kinds that claim a machine-callable agent protocol. */
+const MACHINE_CALLABLE = new Set(['a2a', 'mcp', 'x402', 'oasf'])
+
+function hostOf(endpoint: string | null): string | null {
+  if (endpoint === null) return null
+  try {
+    return new URL(endpoint).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
 export function computeStats(records: RunRecord[]): SweepStats {
   const failures = Object.fromEntries(FAILURE_CLASSES.map((c) => [c, 0])) as Record<FailureClass, number>
   const kinds: Record<string, number> = {}
@@ -63,6 +88,10 @@ export function computeStats(records: RunRecord[]): SweepStats {
   let reachable = 0
   let fullyReachable = 0
   let protocolConformant = 0
+  let protocolLiveAgents = 0
+  let declaringAgents = 0
+  const protocolLiveByKind: Record<string, number> = {}
+  const liveHosts = new Set<string>()
   let declared = 0
   let scoreable = 0
   let answered = 0
@@ -83,6 +112,15 @@ export function computeStats(records: RunRecord[]): SweepStats {
     if (record.okCount > 0) reachable += 1
     if (record.scoredCount > 0 && record.okCount === record.scoredCount) fullyReachable += 1
     if (record.protocolOkCount > 0) protocolConformant += 1
+    if (record.kinds.some((kind) => MACHINE_CALLABLE.has(kind))) declaringAgents += 1
+    if (record.protocolLive) {
+      protocolLiveAgents += 1
+      for (const kind of record.protocolLiveKinds) {
+        protocolLiveByKind[kind] = (protocolLiveByKind[kind] ?? 0) + 1
+      }
+      const host = hostOf(record.primaryEndpoint)
+      if (host !== null) liveHosts.add(host)
+    }
 
     declared += record.endpointCount
     scoreable += record.scoredCount
@@ -115,6 +153,10 @@ export function computeStats(records: RunRecord[]): SweepStats {
     reachable,
     fullyReachable,
     protocolConformant,
+    protocolLiveAgents,
+    declaringAgents,
+    protocolLiveByKind,
+    protocolLiveHosts: [...liveHosts].sort(),
     endpoints: { declared, scoreable, answered, protocolOk },
     failures,
     kinds,
@@ -148,6 +190,9 @@ export function formatStats(stats: SweepStats): string {
   const pct = (n: number, d: number) => (d === 0 ? '  0.0%' : `${((100 * n) / d).toFixed(1).padStart(5)}%`)
 
   lines.push(`agents probed            ${stats.agents}`)
+  lines.push(
+    `  PROTOCOL-LIVE (strict)  ${String(stats.protocolLiveAgents).padStart(5)}  ${pct(stats.protocolLiveAgents, stats.agents)}   ${pct(stats.protocolLiveAgents, stats.declaringAgents).trim()} of the ${stats.declaringAgents} that declare one`,
+  )
   lines.push(`  reachable (>=1 ok)     ${String(stats.reachable).padStart(6)}  ${pct(stats.reachable, stats.agents)}`)
   lines.push(
     `  fully reachable        ${String(stats.fullyReachable).padStart(6)}  ${pct(stats.fullyReachable, stats.agents)}`,
@@ -162,6 +207,13 @@ export function formatStats(stats: SweepStats): string {
   lines.push('')
   lines.push(
     `endpoints declared ${stats.endpoints.declared}, scoreable ${stats.endpoints.scoreable}, answered ${stats.endpoints.answered} (${pct(stats.endpoints.answered, stats.endpoints.scoreable).trim()}), protocol-ok ${stats.endpoints.protocolOk}`,
+  )
+  lines.push('')
+  lines.push(
+    `protocol-live by kind  ${Object.entries(stats.protocolLiveByKind).map(([k, v]) => `${k} ${v}`).join('  ') || '(none)'}`,
+  )
+  lines.push(
+    `protocol-live hosts    ${stats.protocolLiveHosts.length}${stats.protocolLiveHosts.length === 0 ? '' : `: ${stats.protocolLiveHosts.slice(0, 12).join(', ')}${stats.protocolLiveHosts.length > 12 ? ', …' : ''}`}`,
   )
   lines.push('')
   lines.push('failure breakdown')

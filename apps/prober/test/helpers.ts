@@ -91,6 +91,7 @@ export function endpointProbe(overrides: Partial<EndpointProbe> = {}): EndpointP
     latencyMs: 100,
     failure: null,
     protocolOk: true,
+    protocolLive: true,
     scored: true,
     requests: [],
     ...overrides,

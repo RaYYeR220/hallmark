@@ -12,7 +12,23 @@ import { getChain, isSupportedChainId } from '@hallmark/core'
 import type { SupportedChainId } from '@hallmark/core'
 
 export type ProbeSettings = {
+  /**
+   * Per-endpoint deadline. This is a *scoring* boundary, not just a patience
+   * setting: `LATENCY_ZERO_MS` is also 5,000, so an endpoint that takes longer
+   * than this scores zero for latency anyway. Raising it changes what the
+   * score means.
+   */
   timeoutMs: number
+  /**
+   * Deadline for fetching an off-chain registration file, which is a one-shot
+   * document fetch and is not scored at all.
+   *
+   * Measured: at a shared 5s budget with 24-wide concurrency, 842 of 1,878
+   * mainnet agents failed to resolve their card, hiding their endpoints
+   * entirely and costing 448 agents a `reachable` verdict they deserved. There
+   * was never a reason to starve this on the endpoint's latency budget.
+   */
+  cardTimeoutMs: number
   concurrency: number
   maxRedirects: number
   maxBodyBytes: number
@@ -68,6 +84,7 @@ export const DEFAULT_TOTAL_WEI = 3_500_000_000_000_000n
 
 export const DEFAULT_PROBE: ProbeSettings = {
   timeoutMs: 5_000,
+  cardTimeoutMs: 15_000,
   concurrency: 20,
   maxRedirects: 3,
   maxBodyBytes: 2 * 1024 * 1024,
@@ -124,6 +141,8 @@ export function loadConfig(overrides: ConfigOverrides = {}): ProberConfig {
     port: overrides.port ?? intOr(env['PORT'], 8787),
     probe: {
       timeoutMs: overrides.probe?.timeoutMs ?? intOr(env['PROBE_TIMEOUT_MS'], DEFAULT_PROBE.timeoutMs),
+      cardTimeoutMs:
+        overrides.probe?.cardTimeoutMs ?? intOr(env['PROBE_CARD_TIMEOUT_MS'], DEFAULT_PROBE.cardTimeoutMs),
       concurrency: overrides.probe?.concurrency ?? intOr(env['PROBE_CONCURRENCY'], DEFAULT_PROBE.concurrency),
       maxRedirects: overrides.probe?.maxRedirects ?? intOr(env['PROBE_MAX_REDIRECTS'], DEFAULT_PROBE.maxRedirects),
       maxBodyBytes: overrides.probe?.maxBodyBytes ?? intOr(env['PROBE_MAX_BODY_BYTES'], DEFAULT_PROBE.maxBodyBytes),

@@ -4,3 +4,8 @@ node_modules/
 pnpm-lock.yaml
 data/
 *.log
+data-census/
+data-retry/
+retry-ids.txt
+data-census2/
+*.log

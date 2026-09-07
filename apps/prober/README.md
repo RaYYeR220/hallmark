@@ -68,6 +68,66 @@ Endpoints that cannot be contacted over HTTP at all — `did:`, `mailto:`, a bar
 
 `reachability` and `protocol` are not independent for A2A and MCP: an endpoint that answers but does not speak its protocol is `ok: false`, so it loses both. That is intentional double weighting. They come apart for `web` endpoints (a 2xx with an empty body is reachable but not conformant) and for an A2A endpoint sitting behind a payment wall (reachable and priced, but the card is not readable without paying).
 
+### Two numbers: `reachable` and `protocolLive`
+
+The prober reports both, and they answer different questions. Conflating them is how a marketplace ends up lying.
+
+| metric | definition |
+| --- | --- |
+| `reachable` | at least one declared endpoint answered. **Includes a plain `web` face returning HTML.** An intermediate funnel step, not a verdict. |
+| `protocolLiveAgents` | at least one endpoint is a **working agent protocol**: an A2A card with a non-empty `skills` array (not self-declared offline, no null endpoint), **or** an MCP server that completed `initialize` and enumerated at least one tool, **or** an endpoint that served a decodable x402 challenge. A `web` face never counts. |
+
+**Hallmark quotes `protocolLive` publicly.** `reachable` appears only as a funnel step, always next to the strict number. `publish` refuses to write an attestation for an agent that is not protocol-live unless you pass `--allow-web-only`, so the permissive verdict cannot reach the chain by accident.
+
+The gap is enormous and it is the whole point. On a 6,000-agent mainnet sample: **2,094 reachable (34.9%), 28 protocol-live (0.47%)**. Publishing the first number would be a 75x overstatement.
+
+### Reconciliation with the independent census
+
+An independent census harness sampled 6,000 mainnet agents and reported **23 protocol-live**. This prober's first 6,000-agent run against the same ceiling (338,235) reported **5**. That gap was not sampling noise, and chasing it found a real defect in this package.
+
+**Step 1 — the definitions agree.** Tested directly, outside either sample, the prober was pointed at all three hosts the census named and independently found all three protocol-live via A2A with real skills:
+
+| host | prober verdict | skills found |
+| --- | --- | --- |
+| `app.singularry.org` | protocol-live | 5 (Autonomous Portfolio Management, Yield Optimization, Funding Rate Arbitrage, Concentrated Liquidity LP, DCA) |
+| `api.bortagent.xyz` | protocol-live | 8 (On-chain trading, Live market data, Portfolio, Social signal trading, ...) |
+| `bnb-yield.172-104-171-139.nip.io` | protocol-live | 2 (negotiate, notify_funded) |
+
+So given the same agent, the two harnesses return the same verdict. The disagreement was never about the rule.
+
+**Step 2 — the budget-sensitivity test, which found the bug.** Every agent in the sample that declared a protocol but was not live, or timed out, or whose card would not resolve — 1,878 agents — was re-probed at a 4x longer timeout (20s) and a quarter of the concurrency (6):
+
+| | at 5s / 24-wide | at 20s / 6-wide |
+| --- | ---: | ---: |
+| cards that resolved | — | **+842** |
+| agents reachable | — | **+448** |
+| agents protocol-live | — | +1 |
+| agents that *lost* reachability | — | 0 |
+
+842 of 1,878 registration files — **45%** — had simply failed to fetch. An agent whose card does not resolve has no declared endpoints to probe, so it was being scored 0 with no endpoints rather than being measured at all.
+
+The cause was a genuine design error here, not a rate limit. `resolveAgentCard` was being handed the *endpoint* timeout. But 5,000 ms is not a patience setting for the endpoint probe — it is a **scoring boundary**, deliberately equal to `LATENCY_ZERO_MS`, because how fast an endpoint answers is part of the score. Fetching an off-chain registration file is a one-shot document GET that is not scored at all, and there was never a reason to starve it on the endpoint's latency budget. `PROBE_CARD_TIMEOUT_MS` is now separate and defaults to 15s.
+
+**Step 3 — after the fix, re-running the identical sample (6,000 agents, seed 42, ceiling 338,235):**
+
+| | before the fix | after the fix | census |
+| --- | ---: | ---: | ---: |
+| protocol-live agents | 5 | **28** (0.47%) | 23 (0.38%) |
+| distinct live hosts | 3 | **5** | 3 |
+| agents declaring a protocol | 559 | 604 (10.1%) | 643 (10.7%) |
+| unparseable card | 1,324 | 726 (12.1%) | — |
+| reachable | 1,749 | 2,094 (34.9%) | — |
+
+**The census was right and this prober was under-counting.** 28 versus 23 is the same order of magnitude and entirely consistent with two different draws: `--seed 42` only reproduces the sampler that consumed it, so the two harnesses drew different agent ids, and the live population is heavily clustered by operator. In this sample `evoevo.ai` alone is declared by **1,656 of 6,000 agents (27.6%)**, `platform-backend.prod.termix.live` by 466, `q402.quackai.ai` by 76. The count of live agents is therefore not a binomial draw from 6,000 independent trials — its effective sample size is the number of distinct *operators*, which is single digits, so whether one live operator's registrations land in your sample moves the count by several.
+
+One more thing the experiment showed, and it is an argument for the strict metric on its own: **`protocolLive` is robust to probe budget and `reachable` is not.** Quadrupling the timeout moved `reachable` by +448 agents and `protocolLive` by +1. A number that swings 25% on a tuning parameter is not a number to publish.
+
+**What we publish.** The strict definition, with the sample, seed, ceiling and host count attached, and never a bare agent count:
+
+> Of ~338,000 ERC-8004 agents registered on BNB Smart Chain, a 6,000-agent sample (seed 42, ceiling 338,235) found **28 agents — 0.47%, one in 214 — serving a working agent protocol, behind 5 distinct hosts.** About 10% of agents declare a machine-callable protocol; under 5% of those answer. An independent census of a different 6,000-agent sample found 23 across 3 hosts.
+
+Agent counts are reported with the caveat that they are operator-clustered — "28 live agents" is not 28 independent teams. `stats` prints `protocol-live hosts` directly beneath `PROTOCOL-LIVE (strict)` for exactly this reason.
+
 ### Why the rules are strict
 
 A census of 6,000 sampled BSC agents found **23** that answer on a working agent protocol. It also found **506** serving a perfectly well-formed agent card that announces `"skills": []`, `"endpoint": null`, `"presence": "offline"` — a card that says in its own words that there is nothing here to hire. A permissive validity rule scores those as alive and reports 529 instead of 23: a **23× error**, published on chain, under our name.
@@ -128,7 +188,31 @@ The standard's own liveness vocabulary, not invented ones.
 
 `tag2` is always `hallmark`, so our writes are filterable.
 
-`HallmarkHook._reputationEvidence` calls `getSummary(agentId, [attestor], "reachable", "")` and requires `count > 0 && value > 0` — so the attestor key must be the one writing the feedback, and a score of 0 is never published. `HallmarkHook._validationEvidence` requires `validator == attestor`. In practice `ATTESTOR_PRIVATE_KEY` and `VALIDATOR_PRIVATE_KEY` are the same key; the publisher warns loudly at startup if they are not.
+### ⚠️ The attestor and the validator must be the same address
+
+This is a hard deployment constraint and it fails **silently**, so it is worth stating plainly before anyone loses an afternoon to it.
+
+`HallmarkHook` only credits evidence that came from the attestor:
+
+```solidity
+// _reputationEvidence
+clients[0] = attestor;
+reputation.getSummary(agentId, clients, REACHABLE_TAG, "")  // needs count > 0 && value > 0
+
+// _validationEvidence
+if (validatorAddress == att && recordAgentId == agentId && recordLastUpdate != 0) { … }
+```
+
+So if `ATTESTOR_PRIVATE_KEY` and `VALIDATOR_PRIVATE_KEY` are different addresses, **the funding gate never opens, no matter how much evidence you publish.** Every write succeeds. Every receipt is green. `isHireable` keeps returning false and `fund` keeps reverting `NoFreshEvidence`, with nothing anywhere explaining why. There is no error to catch, because from the registry's point of view nothing went wrong — the evidence is simply addressed to somebody the hook does not trust.
+
+Hallmark's deployment uses one address for both (`0x9ff98B99B6B250b3a23961EA932F4ef147B909ab`). `createPublisher` compares the two keys at startup and, if they differ, prints a boxed error naming both addresses and the two contract functions responsible, before it does anything else.
+
+Two consequences fall out of the same design:
+
+- **feedback must come from the attestor key**, not from any convenient address — the unsolicited path works from anyone, but only the attestor's writes are visible to the gate;
+- **a score of 0 is never published**, because `value > 0` is required; the publisher refuses it rather than writing a row that can never count.
+
+`HallmarkHook._reputationEvidence` also pins the tag: it reads `REACHABLE_TAG`, which is why `--tag reachable` is the default and the other two tags are supplementary.
 
 ### Gas: why we do not trust `eth_estimateGas`
 
@@ -177,6 +261,21 @@ The prober takes a URL out of an untrusted on-chain record and fetches it. That 
 
 `PROBE_CHECK_DNS=false` (or `--no-dns`) turns off the rebinding check. It logs a warning when you do. Outside Node, where `node:dns` is unavailable, the syntactic checks still apply but rebinding is not defensible — this is stated rather than papered over.
 
+### Finding: registered agents pointing into private network space
+
+The DNS check is not hypothetical. Sweeping all 2,218 agents on BSC testnet, the guard refused **300 endpoints**, and five of them were the interesting kind — public hostnames whose A records resolve into RFC-1918 space:
+
+| endpoint host | resolves to | agents |
+| --- | --- | ---: |
+| `poc8004-agents.fe.kfkshore.org` | `172.22.1.210` | 3 |
+| `bnbagent-api.fe.kfkshore.org` | `172.22.3.42` | 2 |
+
+These are ERC-8004 agents whose on-chain registration file directs any client that reads it at an address inside a private network. A naive indexer or marketplace that fetches declared endpoints server-side turns that record into an SSRF primitive against its own infrastructure; one that runs client-side turns every visitor's browser into a probe of their LAN. It is very probably a staging deployment someone forgot to repoint rather than an attack — but the registry has no way to tell the difference, and neither does anyone reading it.
+
+The remaining 295 were the blunt cases: 270 `localhost`, 22 `127.0.0.1`, 3 `.local` hostnames.
+
+The corollary matters too. `bnb-yield.172-104-171-139.nip.io` — one of the live mainnet agents — **is allowed**, because `172.104.0.0/16` is public Linode space and the private range is only `172.16.0.0/12`. A guard that pattern-matches on `172.` would wrongly refuse a working agent. The check is by CIDR, not by prefix string.
+
 ---
 
 ## Commands
@@ -190,6 +289,9 @@ hallmark-probe sweep --chain 97 --sample 3000 --seed full-testnet
 
 # probe the newest agents from the 8004scan index
 hallmark-probe sweep --chain 56 --recent 200
+
+# re-probe a specific set, e.g. everything that timed out, with a bigger budget
+hallmark-probe sweep --chain 56 --agents-file ids.txt --timeout 20000 --concurrency 6
 
 # one agent, verbose: every endpoint, every request, the score breakdown
 hallmark-probe probe --agent 2210 --chain 97

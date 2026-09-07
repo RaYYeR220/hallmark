@@ -214,9 +214,11 @@ async function readAgent(ctx: ProbeContext, agentId: number) {
     return await ctx.reader.getAgent(agentId, {
       resolveOffChain: ctx.config.probe.resolveOffChainCards,
       // The registration file is itself an untrusted URL from the chain, so it
-      // goes through the same guard as everything else the prober fetches.
-      fetchImpl: guardedFetch(ctx.http),
-      timeoutMs: ctx.config.probe.timeoutMs,
+      // goes through the same guard as everything else the prober fetches —
+      // but on its own, longer deadline, because fetching a document is not a
+      // latency measurement and starving it hides the agent's endpoints.
+      fetchImpl: guardedFetch({ ...ctx.http, timeoutMs: ctx.config.probe.cardTimeoutMs }),
+      timeoutMs: ctx.config.probe.cardTimeoutMs,
     })
   } catch (err) {
     ctx.logger.warn('identity read failed', { agentId, error: messageOf(err) })
@@ -237,6 +239,7 @@ async function probeEndpoint(ctx: ProbeContext, endpoint: ResolvedEndpoint): Pro
         error: 'not reachable over http(s)',
         failure: 'unsupported-scheme',
         protocolOk: false,
+        protocolLive: false,
         scored: false,
         requests: [],
       },
@@ -260,6 +263,7 @@ async function probeEndpoint(ctx: ProbeContext, endpoint: ResolvedEndpoint): Pro
     latencyMs: outcome.latencyMs,
     failure: outcome.ok ? null : (outcome.failure ?? 'network'),
     protocolOk: outcome.protocolOk,
+    protocolLive: outcome.protocolLive,
     scored: true,
     requests: outcome.requests,
     ...(outcome.status === null ? {} : { httpStatus: outcome.status }),
