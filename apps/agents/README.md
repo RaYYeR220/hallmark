@@ -150,11 +150,33 @@ a no.
 unknown caps the verdict at `caution`. A green tick that means "we did not
 look" is the most dangerous output a scanner can produce.
 
+## Deploying
+
+The serverless entry point in `api/index.ts` is a hand-written Node-to-Web
+adapter rather than `@hono/node-server/vercel`, and the reason is worth
+knowing before someone swaps it back.
+
+That adapter builds the request body with `Readable.toWeb(incoming)`. Vercel's
+Node runtime has already read the body to populate `req.body` before the
+function runs, so the stream handed over is drained; converting it yields a
+body that either resolves empty or never settles. In production it never
+settled, and the symptom was exact: **every route that reads a body hung, and
+every route that does not read one worked.** The cards and `GET /a2a/{slug}`
+were fine. An unpaid `POST /x402/...` was fine, because it answers 402 before
+touching the body. `POST /mcp/{slug}` never answered.
+
+So the body is taken from where the platform actually put it, and every wait
+is bounded — the body read, the skill, and the request — because a face that
+hangs is scored dead by a prober while one that returns 504 is merely slow.
+`test/vercel-handler.test.ts` drives the exported handler with the exact
+production request shape, so this cannot come back through a test that only
+exercises `app.fetch`.
+
 ## Running it
 
 ```bash
 pnpm install
-pnpm test          # 186 tests, no network, no keys
+pnpm test          # 209 tests, no network, no keys
 pnpm typecheck
 pnpm start         # http://localhost:8787
 pnpm prove         # every face, against live BNB Chain mainnet, read-only

@@ -314,7 +314,9 @@ export async function handleA2A(body: unknown, deps: A2AHandlerDeps): Promise<Js
             ? RPC_ERRORS.METHOD_NOT_FOUND
             : result.code === 'invalid-input'
               ? RPC_ERRORS.INVALID_PARAMS
-              : RPC_ERRORS.INTERNAL_ERROR
+              : result.code === 'timeout'
+                ? RPC_ERRORS.SKILL_TIMEOUT
+                : RPC_ERRORS.INTERNAL_ERROR
         return rpcError(id, code, result.message, result.code === 'invalid-input' ? result.errors : undefined)
       }
 

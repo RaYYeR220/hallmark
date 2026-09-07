@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "buildCommand": "pnpm -F @hallmark/core -F @hallmark/altana build",
-  "installCommand": "pnpm install --filter @hallmark/agents... --frozen-lockfile=false",
+  "installCommand": "pnpm install --filter @hallmark/agents...",
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,

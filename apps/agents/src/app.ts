@@ -376,7 +376,13 @@ export function buildApp(deps: AppDeps = {}) {
           message: result.message,
           ...(result.code === 'invalid-input' ? { errors: result.errors } : {}),
         },
-        result.code === 'invalid-input' ? 400 : result.code === 'unknown-skill' ? 404 : 500,
+        result.code === 'invalid-input'
+          ? 400
+          : result.code === 'unknown-skill'
+            ? 404
+            : result.code === 'timeout'
+              ? 504
+              : 500,
       )
     }
 
@@ -443,7 +449,7 @@ export function buildApp(deps: AppDeps = {}) {
           message: result.message,
           ...(result.code === 'invalid-input' ? { errors: result.errors } : {}),
         },
-        result.code === 'invalid-input' ? 400 : 404,
+        result.code === 'invalid-input' ? 400 : result.code === 'timeout' ? 504 : 404,
       )
     }
     return c.json(result.output as object)

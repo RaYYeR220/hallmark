@@ -36,6 +36,8 @@ export const RPC_ERRORS = {
   AGENT_REFUSED: -32000,
   /** The caller has not paid for a priced skill on a face that requires it. */
   PAYMENT_REQUIRED: -32002,
+  /** The skill ran past its deadline. Reported rather than waited out. */
+  SKILL_TIMEOUT: -32001,
 } as const
 
 export function rpcResult(id: JsonRpcId, result: unknown): JsonRpcResponse {

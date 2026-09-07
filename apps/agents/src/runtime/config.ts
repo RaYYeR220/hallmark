@@ -58,9 +58,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     '',
   )
 
+  // Two spellings, because the deployment sets one and the local .env the
+  // other. Reading only one of them is a silent fallback to a public node —
+  // the service still works, just against a rate-limited RPC nobody chose.
   const rpcUrl: Partial<Record<SupportedChainId, string>> = {}
-  if (env['BSC_RPC_URL']) rpcUrl[56] = env['BSC_RPC_URL']
-  if (env['BSC_TESTNET_RPC_URL']) rpcUrl[97] = env['BSC_TESTNET_RPC_URL']
+  const rpc56 = env['RPC_URL_56'] ?? env['BSC_RPC_URL']
+  const rpc97 = env['RPC_URL_97'] ?? env['BSC_TESTNET_RPC_URL']
+  if (rpc56) rpcUrl[56] = rpc56
+  if (rpc97) rpcUrl[97] = rpc97
 
   // x402 prices are quoted in the 18-decimal stablecoin each chain settles in:
   // USDT on 56, $U on 97. Both are 18 decimals on BNB Chain — the six-decimal
@@ -80,7 +85,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     cronSecret: env['CRON_SECRET'] ?? env['HALLMARK_CRON_SECRET'] ?? null,
     rpcUrl,
-    bscscanApiKey: env['BSCSCAN_API_KEY'] ?? null,
+    bscscanApiKey: env['BSCSCAN_API_KEY'] ?? env['SCAN_API_KEY'] ?? null,
     version: SERVICE_VERSION,
   }
 }

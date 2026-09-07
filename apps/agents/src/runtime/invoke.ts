@@ -1,6 +1,7 @@
 import type { AgentDefinition, AgentSkill, SkillContext } from './types.js'
 import { validate } from './schema.js'
 import { messageOf } from './jsonrpc.js'
+import { loadTimeouts, withDeadline } from './deadline.js'
 
 /**
  * One place where a skill actually runs.
@@ -17,6 +18,7 @@ export type InvokeResult =
   | { ok: false; code: 'unknown-skill'; message: string; known: string[] }
   | { ok: false; code: 'invalid-input'; message: string; errors: string[] }
   | { ok: false; code: 'failed'; message: string }
+  | { ok: false; code: 'timeout'; message: string; timeoutMs: number }
 
 export function findSkill(agent: AgentDefinition, skillId: string): AgentSkill | undefined {
   return agent.skills.find((skill) => skill.id === skillId)
@@ -42,11 +44,17 @@ export function toJsonSafe(value: unknown): unknown {
   return value
 }
 
+export type InvokeOptions = {
+  /** Milliseconds a single skill may run for. Defaults to the configured skill timeout. */
+  timeoutMs?: number
+}
+
 export async function invokeSkill(
   agent: AgentDefinition,
   skillId: string,
   rawInput: unknown,
   ctx: SkillContext,
+  opts: InvokeOptions = {},
 ): Promise<InvokeResult> {
   const skill = findSkill(agent, skillId)
   if (!skill) {
@@ -68,12 +76,35 @@ export async function invokeSkill(
     }
   }
 
+  // A skill reads the chain, and a chain read can stall. Every transport here
+  // carries its own timeout, but a deadline on the whole invocation is what
+  // guarantees the face answers even when something below it does not — and a
+  // face that answers slowly is scored alive, where one that hangs is not.
+  const timeoutMs = opts.timeoutMs ?? loadTimeouts().skill
+
+  let ran
   try {
-    const output = await skill.run(parsed.value, ctx)
-    return { ok: true, skill, output: toJsonSafe(output) }
+    ran = await withDeadline(Promise.resolve(skill.run(parsed.value, ctx)), {
+      label: `${agent.manifest.slug}.${skillId}`,
+      timeoutMs,
+    })
   } catch (error) {
     // A throw from a skill is a bug in this service, not a user error — the
     // expected negatives (a refusal, a stale feed, no session) are all values.
     return { ok: false, code: 'failed', message: messageOf(error) }
   }
+
+  if (!ran.ok) {
+    return {
+      ok: false,
+      code: 'timeout',
+      timeoutMs,
+      message:
+        `${agent.manifest.slug}.${skillId} did not finish within ${timeoutMs}ms. Nothing was ` +
+        'sent: this is a read that stalled, and the skill was abandoned rather than left to ' +
+        'hold the request open.',
+    }
+  }
+
+  return { ok: true, skill, output: toJsonSafe(ran.value) }
 }
