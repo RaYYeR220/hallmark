@@ -173,7 +173,11 @@ async function Results({ query }: { query: AgentQuery }) {
                 {formatNumber(from)}–{formatNumber(to)}
               </span>{' '}
               of {result.totalIsExact ? formatNumber(result.total) : `${formatNumber(result.total)}+`}{' '}
-              {result.totalIsExact ? '' : '(the index cannot count this filter server-side) '}
+              {/* A floor rather than a total, for two different reasons: either
+                  the index cannot count this filter server-side, or the index
+                  is down and these came from the chain. The banner above says
+                  which, so this stays neutral. */}
+              {result.totalIsExact ? '' : '(a floor, not a total) '}
               agents
             </>
           )}

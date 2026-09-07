@@ -191,12 +191,36 @@ the finding is present with status `unknown` rather than absent. That absence
 was also why the free tier could reach `proceed`: an unrun critical check that
 emits no finding costs nothing in the verdict.
 
-**Privilege follows the contracts the token points at.** A token can be
-renounced and still be controlled one hop away. The scan now reads
+**Privilege follows the contracts the token points at, through their own
+proxies.** A token can be renounced and still be controlled one hop away, and
+the control can live in the code rather than the owner. The scan reads
 `taxProcessor()`, `dividendContract()` and eight other common getters, follows
-any that hold code, and reads their ownership. On the subject token both are
-owned by a single non-renounced key — which the token's own renounced ownership
-says nothing about.
+any that hold code, reads their ownership — and then takes one more hop: each
+of those contracts is resolved through *its* own proxy, and the implementation
+bytecode is scanned for the same privileged selectors the token was scanned
+for. On the subject token this is not academic. Both auxiliary contracts are
+themselves 45-byte EIP-1167 stubs, so a scanner that resolves the token's proxy
+but not theirs reads 45 bytes of delegation, finds no mint and no blacklist,
+and reports clean:
+
+| Getter | Address | Owner renounced | Stub | Implementation | Privileged code |
+| --- | --- | --- | --- | --- | --- |
+| `taxProcessor()` | `0x1054…a43E` | no | 45 B | `0x091d…5e66` (18,621 B) | none found |
+| `dividendContract()` | `0x3F8b…a127` | no | 45 B | `0xC68F…c9aFA` (10,254 B) | none found |
+
+Both are owned by the same non-renounced key, `0xe2cE…9De0`, which the token's
+own renounced ownership says nothing about — so the finding is a `warn` at high
+severity. It would have been a `fail` at critical had either implementation
+carried mint, blacklist or pause: owned *and* privileged is control, not a
+loose end. Here the hop found ownership without privileged code, and the report
+says that rather than implying it.
+
+The walk is bounded: exactly one extra hop, at most six contracts followed, and
+`auxiliaryScan` carries `{found, followed, cap, capped, detail}` so the report
+states where it stopped instead of implying it looked everywhere. Past the cap
+the remaining contracts are still listed, marked unfollowed, and pushed to
+`unknowns`. An unbounded walk of a token's address graph is a denial of service
+on ourselves; a walk that quietly stopped early is worse than one that says so.
 
 **PancakeSwap comes from PancakeSwap.** DeFiLlama does carry Pancake BSC pools,
 but only v2; the deepest stable venue on the chain is a v3 pool at roughly $41M
@@ -399,7 +423,7 @@ exercises `app.fetch`.
 
 ```bash
 pnpm install
-pnpm test          # 251 tests, no network, no keys
+pnpm test          # 255 tests, no network, no keys
 pnpm typecheck
 pnpm start         # http://localhost:8787
 pnpm prove         # every face, against live BNB Chain mainnet, read-only

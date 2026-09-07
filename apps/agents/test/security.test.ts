@@ -577,5 +577,136 @@ describe('contracts the token routes through', () => {
     if ('error' in result) throw new Error(result.detail)
     expect(result.decision.auxiliary).toEqual([])
     expect(result.decision.findings.some((f) => f.id === 'auxiliary-contracts')).toBe(false)
+    expect(result.decision.auxiliaryScan.found).toBe(0)
+    expect(result.decision.auxiliaryScan.capped).toBe(false)
+  })
+
+  /**
+   * The second hop.
+   *
+   * Both auxiliary contracts on the live token this agent was built against are
+   * themselves 45-byte EIP-1167 stubs. Resolving the token's proxy but not
+   * theirs finds two addresses holding no mint, no blacklist, nothing — and
+   * reports clean. These tests hold the walk to one hop, and hold it to
+   * admitting where it stopped.
+   */
+  const PROCESSOR = '0x00000000000000000000000000000000000e2ce6' as Address
+  const PROCESSOR_IMPL = '0x0000000000000000000000000000000000091d37' as Address
+  const CONTROLLER = '0x000000000000000000000000000000000009de00' as Address
+
+  it('follows an auxiliary contract through its own proxy and scans the implementation', async () => {
+    const state = tokenChain({ owner: DEAD })
+    state.reads[readKey(TOKEN, 'taxProcessor')] = PROCESSOR
+    state.reads[readKey(PROCESSOR, 'owner')] = CONTROLLER
+    // 45 bytes at the address the token names; the mint lives one hop further.
+    state.code![PROCESSOR.toLowerCase()] = minimalProxyCode(PROCESSOR_IMPL)
+    state.code![PROCESSOR_IMPL.toLowerCase()] = bodyWith(['mint(address,uint256)'], 12_000)
+
+    const ctx = testContext({ client: fakeClient(state), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const entry = result.decision.auxiliary[0]!
+    expect(entry.codeSize).toBe(45)
+    expect(entry.proxy?.isProxy).toBe(true)
+    expect(entry.proxy?.kind).toBe('eip1167-minimal')
+    expect(entry.proxy?.implementation?.toLowerCase()).toBe(PROCESSOR_IMPL.toLowerCase())
+    // The scan looked at the implementation, not the stub.
+    expect(entry.scanned?.toLowerCase()).toBe(PROCESSOR_IMPL.toLowerCase())
+    expect(entry.privileges.map((privilege) => privilege.signature)).toContain(
+      'mint(address,uint256)',
+    )
+
+    // Owned and privileged is control, and the token being renounced does not
+    // soften it: this fails rather than warns.
+    const aux = result.decision.findings.find((f) => f.id === 'auxiliary-contracts')!
+    expect(aux.status).toBe('fail')
+    expect(aux.severity).toBe('critical')
+    expect(aux.detail).toContain('mint(address,uint256)')
+    expect(aux.detail).toContain('control, not a')
+    expect(result.decision.recommendation).toBe('do-not-proceed')
+  })
+
+  it('scanning only the stub would have missed it — the negative control on the hop', async () => {
+    // Identical fixture with the second hop's target left empty. If the scan
+    // read the 45-byte stub it would find nothing there either, so this proves
+    // the finding above came from the implementation and nowhere else.
+    const state = tokenChain({ owner: DEAD })
+    state.reads[readKey(TOKEN, 'taxProcessor')] = PROCESSOR
+    state.reads[readKey(PROCESSOR, 'owner')] = CONTROLLER
+    state.code![PROCESSOR.toLowerCase()] = minimalProxyCode(PROCESSOR_IMPL)
+    state.code![PROCESSOR_IMPL.toLowerCase()] = bodyWith([], 12_000)
+
+    const ctx = testContext({ client: fakeClient(state), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const entry = result.decision.auxiliary[0]!
+    expect(entry.proxy?.isProxy).toBe(true)
+    expect(entry.scanned?.toLowerCase()).toBe(PROCESSOR_IMPL.toLowerCase())
+    expect(entry.privileges).toEqual([])
+    // Still owned, so still a warning — but not a failure.
+    const aux = result.decision.findings.find((f) => f.id === 'auxiliary-contracts')!
+    expect(aux.status).toBe('warn')
+    expect(entry.detail).toContain('none of the privileged selectors')
+  })
+
+  it('reports a renounced auxiliary carrying high-severity code as a warning, not a failure', async () => {
+    const state = tokenChain({ owner: DEAD })
+    state.reads[readKey(TOKEN, 'feeReceiver')] = PROCESSOR
+    state.reads[readKey(PROCESSOR, 'owner')] = DEAD
+    state.code![PROCESSOR.toLowerCase()] = bodyWith(['setFees(uint256,uint256)'], 6_000)
+
+    const ctx = testContext({ client: fakeClient(state), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const entry = result.decision.auxiliary[0]!
+    expect(entry.renounced).toBe(true)
+    expect(entry.proxy?.isProxy).toBe(false)
+    expect(entry.scanned?.toLowerCase()).toBe(PROCESSOR.toLowerCase())
+    expect(entry.privileges.map((privilege) => privilege.signature)).toContain(
+      'setFees(uint256,uint256)',
+    )
+    const aux = result.decision.findings.find((f) => f.id === 'auxiliary-contracts')!
+    expect(aux.status).toBe('warn')
+  })
+
+  it('says where it stopped when more contracts are named than the cap allows', async () => {
+    const getters = [
+      'taxProcessor',
+      'dividendContract',
+      'dividendTracker',
+      'treasury',
+      'marketingWallet',
+      'feeReceiver',
+      'rewardToken',
+    ] as const
+    const state = tokenChain({ owner: DEAD })
+    getters.forEach((getter, index) => {
+      const address = `0x${(index + 1).toString(16).padStart(40, '0')}` as Address
+      state.reads[readKey(TOKEN, getter)] = address
+      state.reads[readKey(address, 'owner')] = CONTROLLER
+      state.code![address.toLowerCase()] = bodyWith([], 2_000)
+    })
+
+    const ctx = testContext({ client: fakeClient(state), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const scan = result.decision.auxiliaryScan
+    expect(scan.found).toBe(7)
+    expect(scan.followed).toBe(6)
+    expect(scan.cap).toBe(6)
+    expect(scan.capped).toBe(true)
+    expect(scan.detail).toContain('this is where it stopped')
+
+    // The one past the cap is listed, unfollowed, and says so — the report
+    // never implies it looked everywhere.
+    const unfollowed = result.decision.auxiliary.filter((entry) => entry.proxy === null)
+    expect(unfollowed).toHaveLength(1)
+    expect(unfollowed[0]!.scanned).toBeNull()
+    expect(unfollowed[0]!.detail).toContain('cap on contracts to resolve was already reached')
+    expect(result.decision.unknowns.join(' ')).toContain('beyond the scan cap')
   })
 })

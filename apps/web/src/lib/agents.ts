@@ -362,6 +362,27 @@ export async function listAgents(query: AgentQuery): Promise<AgentListResult> {
     scanRows = []
   }
 
+  // No rows and a warning means the index failed rather than genuinely
+  // matching nothing. Fall back to the chain so the page still shows real
+  // agents; the banner explains that the filters could not be applied.
+  if (scanRows.length === 0 && warning !== null) {
+    const fromChain = await discoverFromChain(query.chainId, pageSize).catch(() => [])
+    if (fromChain.length > 0) {
+      scanRows = fromChain
+      total = fromChain.length
+      totalIsExact = false
+      hasMore = false
+      readAt = new Date().toISOString()
+      sources.clear()
+      sources.add('ERC-8004 Identity Registry (direct)')
+      warning =
+        'The public index is not answering, so search, filters and sorting are unavailable. ' +
+        'These are the most recently registered agents on this chain, read straight from the ' +
+        'Identity Registry — real cards, real owners, and evidence read live from the hook. ' +
+        'Everything else on the site works normally; the index is only used for search.'
+    }
+  }
+
   const agentIds = scanRows
     .map((item) => Number(item.token_id))
     .filter((id) => Number.isSafeInteger(id) && id > 0)
@@ -473,6 +494,80 @@ function toRow(
     indexUpdatedAt: item.updated_at,
     similarity,
   }
+}
+
+/**
+ * Discovery with no index at all.
+ *
+ * The index is the only way to full-text search three hundred thousand agents,
+ * so when it is down there is no way to honour a query — but there is still a
+ * way to show real agents, and "the search is unavailable" plus an empty page
+ * is a dead end on the second step of the journey.
+ *
+ * So: read the highest minted id from the registry and walk back from it. Those
+ * are the most recently registered agents, read from the chain, with their real
+ * cards and their real evidence. It is not the query the reader asked for and
+ * the page says so plainly — but it is a working page made of true things,
+ * which beats an apology.
+ */
+async function discoverFromChain(
+  chainId: SupportedChainId,
+  pageSize: number,
+): Promise<ScanAgent[]> {
+  const { getCachedHighestAgentId, HIGHEST_ID_HINTS } = await import('./cache')
+  const highest = await getCachedHighestAgentId(chainId, HIGHEST_ID_HINTS[chainId])
+  if (highest === null || highest <= 0) return []
+
+  const ids = Array.from({ length: pageSize }, (_, index) => highest - index).filter(
+    (id) => id > 0,
+  )
+  const onChain = await readerFor(chainId)
+    .getAgents(ids)
+    .catch(() => [])
+
+  const rows: ScanAgent[] = []
+  onChain.forEach((agent, index) => {
+    const agentId = ids[index]
+    if (agent === null || agentId === undefined) return
+    const card = agent.card.ok ? agent.card.card : null
+    const endpoints = card === null ? [] : endpointsOf(card)
+
+    // Shaped like an index row so the rest of the pipeline — classification,
+    // evidence overlay, rendering — needs no special case for this path.
+    rows.push({
+      id: `${chainId}:${agentId}`,
+      agent_id: `${chainId}:chain:${agentId}`,
+      token_id: String(agentId),
+      chain_id: chainId,
+      chain_type: 'evm',
+      contract_address: '',
+      is_testnet: chainId === 97,
+      owner_id: null,
+      owner_address: agent.owner,
+      owner_ens: null,
+      owner_username: null,
+      owner_avatar_url: null,
+      owner_publisher_tier: null,
+      owner_certified_name: null,
+      name: card?.name ?? null,
+      description: card?.description ?? null,
+      image_url: card?.image ?? null,
+      is_verified: false,
+      star_count: 0,
+      supported_protocols: endpoints.map((endpoint) => endpoint.kind.toUpperCase()),
+      x402_supported: card?.x402Support ?? false,
+      total_score: 0,
+      rank: null,
+      network_rank: null,
+      health_score: null,
+      total_feedbacks: 0,
+      average_score: 0,
+      cross_chain_versions: null,
+      created_at: '',
+      updated_at: '',
+    })
+  })
+  return rows
 }
 
 /**

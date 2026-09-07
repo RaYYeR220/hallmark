@@ -8,7 +8,7 @@ import { erc20Abi, hallmarkCommerceAbi, hallmarkHookAbi } from './abi'
 import { multicallAddressFor, publicClientFor } from './chain'
 import { getDeployment, registries, type SupportedChainId } from './deployments'
 import { rpcUrlFor } from './env'
-import { fetchAgentPage } from './scan'
+import { fetchAgentPage, withDeadline } from './scan'
 
 /**
  * Everything on the proof page, gathered live.
@@ -102,6 +102,9 @@ export type ProofSnapshot = {
 }
 
 const STATUS_NAMES = ['Open', 'Funded', 'Submitted', 'Completed', 'Rejected', 'Expired']
+
+/** The index is a convenience here; every claim on /proof comes from a chain. */
+const PROOF_INDEX_DEADLINE_MS = 3_000
 
 /**
  * Wrapped in React's `cache` so the four Suspense sections on /proof — the
@@ -311,13 +314,22 @@ export const getProofSnapshot = cache(async function getProofSnapshot(
       // evidence about other people's agents and frequently owns none of
       // them, so an ownership filter would show an empty page while the
       // registries were full.
-      const page = await fetchAgentPage({
-        chain_id: chainId,
-        min_feedbacks: 1,
-        sort_by: 'total_feedbacks',
-        sort_order: 'desc',
-        limit: 5,
-      }).catch(() => null)
+      // Deadlined. This page's whole job is to be checkable, and the index is
+      // the one input it does not control — when the index is slow this fell
+      // back to a twenty-three-second page. Past the deadline the sweep runs
+      // over our own agents alone, which is the part that matters anyway, and
+      // everything else on the page is a direct chain read.
+      const page = await withDeadline(
+        fetchAgentPage({
+          chain_id: chainId,
+          min_feedbacks: 1,
+          sort_by: 'total_feedbacks',
+          sort_order: 'desc',
+          limit: 5,
+        }).catch(() => null),
+        PROOF_INDEX_DEADLINE_MS,
+        null,
+      )
 
       // Our own agents first, then whatever else carries on-chain ratings.
       const candidates = [
