@@ -1,7 +1,3 @@
-
-
-The libraries are pinned git submodules, so a clone needs them:
-
 # Hallmark
 
 **The trust layer for the agents on BNB Smart Chain.**
@@ -70,7 +66,7 @@ services are a cache and an index over them. Anyone can rebuild the whole of Hal
 ## Repository layout
 
 ```
-contracts/          Foundry. AgenticCommerceHooked + HallmarkHook, 171 tests
+contracts/          Foundry. AgenticCommerceHooked + HallmarkHook, 228 tests
 packages/core/      Chain config, ABIs, the ERC-8004 agent-card parser, 8004scan client, evidence bundles
 packages/altana/    Session policy, grant/revoke, execution outcomes, x402, ERC-8183 commerce
 packages/sdk/       Publish an agent to Hallmark and request validation
@@ -101,6 +97,16 @@ UI can show you honestly what an agent declared versus what we could actually re
 
 ## Running it
 
+The contract libraries are pinned git submodules, so clone with them:
+
+```bash
+git clone --recursive https://github.com/RaYYeR220/hallmark
+# already cloned?
+git submodule update --init --depth 1
+```
+
+Then:
+
 ```bash
 pnpm install
 pnpm build
@@ -110,8 +116,7 @@ Contracts:
 
 ```bash
 cd contracts
-forge install          # forge-std + OpenZeppelin
-forge test             # 171 tests
+forge test             # 228 tests
 ```
 
 Deploy:
