@@ -1,0 +1,47 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+libs = ["lib"]
+solc = "0.8.24"
+# BSC has supported the full Cancun opcode set (EIP-1153, EIP-5656) since the Pascal hardfork.
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+bytecode_hash = "none"
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+fs_permissions = [{ access = "read", path = "./out" }]
+
+# Evidence freshness is a deliberate function of wall-clock time; a validator nudging the timestamp
+# by a few seconds cannot move a 24h window.
+[lint]
+exclude_lints = ["block-timestamp"]
+
+[profile.default.fuzz]
+runs = 512
+
+[profile.default.invariant]
+runs = 128
+depth = 64
+fail_on_revert = false
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+multiline_func_header = "attributes_first"
+sort_imports = false
+
+[rpc_endpoints]
+bsc = "https://bsc-rpc.publicnode.com"
+bsc_testnet = "https://bsc-testnet-rpc.publicnode.com"
+
+[etherscan]
+bsc = { key = "${ETHERSCAN_API_KEY}", chain = 56, url = "https://api.etherscan.io/v2/api" }
+bsc_testnet = { key = "${ETHERSCAN_API_KEY}", chain = 97, url = "https://api.etherscan.io/v2/api" }
