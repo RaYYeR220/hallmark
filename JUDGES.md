@@ -115,11 +115,30 @@ Every attestation carries a `feedbackURI` pointing at a content-addressed eviden
 `feedbackHash` is the keccak256 of that document's canonical bytes. Fetch one and recompute it:
 
 ```bash
-cd apps/prober && pnpm tsx src/cli.ts verify https://hallmark-market.vercel.app/api/evidence/<hash>
+cd apps/prober && pnpm verify \
+  https://hallmark-market.vercel.app/api/evidence/0x0607a4ee34ec0e2adad94e47894c537cb5db8b389246234cdef038fadc3ba289 \
+  --chain 56
+```
+
+which prints, today:
+
+```
+bytes         1670
+declared      0x0607a4ee34ec0e2adad94e47894c537cb5db8b389246234cdef038fadc3ba289
+computed      0x0607a4ee34ec0e2adad94e47894c537cb5db8b389246234cdef038fadc3ba289
+canonical     yes
+bundle        chain 56 agent 154180 score 82 probed 2026-09-07T13:32:50.013Z
+
+reputation records (2)
+  MATCH   client 0x9ff98b99…909ab index 2 hash 0x0607a4ee…3ba289 [scan]
+  MATCH   client 0x9ff98b99…909ab index 1 hash 0x0607a4ee…3ba289 [scan]
+
+VERDICT       OK
 ```
 
 Exit code 0 means the document hashes to its own name **and** an on-chain record carries that hash.
-There is no step where you have to trust us.
+Exit 1 is a document that does not match, 2 unfetchable, 3 sound but unreferenced. There is no step
+where you have to trust us.
 
 We write only what the standard's vocabulary can carry honestly: `reachable` and `successRate` are
 booleans in ERC-8004, so we write 0 or 100 and nothing in between — and `successRate` is never written
