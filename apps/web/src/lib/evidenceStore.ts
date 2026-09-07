@@ -1,6 +1,8 @@
 import { keccak256, toBytes } from 'viem'
 import { canonicalize } from '@hallmark/core'
 
+import { EMBEDDED_EVIDENCE } from './embeddedEvidence'
+
 /**
  * Evidence bundles: reading them, and proving they are what they claim to be.
  *
@@ -108,10 +110,16 @@ export type BundleLookup =
  *
  * Two sources, tried in order:
  *
- *  1. The local evidence store — the same `<dir>/evidence/<hash>.json` layout
- *     the prober writes. Present when the store ships with the deployment or
- *     when both processes share a volume.
- *  2. An upstream prober over HTTP, when `PROBER_BASE_URL` is set. The body is
+ *  1. The bundles embedded at build time. Every attestation Hallmark has
+ *     written on chain is in here. A serverless function's working directory
+ *     is not the repository's, so a relative filesystem lookup that works
+ *     locally can resolve to nothing in production — and a 404 on a URI an
+ *     on-chain hash points at breaks the only promise this project makes.
+ *     Embedding removes the failure mode rather than configuring around it.
+ *  2. The local evidence store — the same `<dir>/evidence/<hash>.json` layout
+ *     the prober writes. This is what serves the other fourteen thousand
+ *     bundles during local work, before any of them are published.
+ *  3. An upstream prober over HTTP, when `PROBER_BASE_URL` is set. The body is
  *     forwarded as text and never parsed on the way through, so a proxied
  *     bundle is byte-identical to a locally stored one.
  *
@@ -120,6 +128,10 @@ export type BundleLookup =
  */
 export async function loadBundleText(hash: `0x${string}`): Promise<BundleLookup> {
   const checked: string[] = []
+
+  const embedded = EMBEDDED_EVIDENCE[hash]
+  if (embedded !== undefined) return { found: true, text: embedded, source: 'store' }
+  checked.push(`embedded:${hash}`)
 
   const dirs = storeDirs()
   for (const dir of dirs) {
