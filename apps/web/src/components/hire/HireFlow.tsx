@@ -34,7 +34,15 @@ export type HireConfig = {
   chainId: number
   agentId: number
   agentName: string
+  /**
+   * The agent's payee — its registered wallet, or its owner when it declares
+   * none. The hook reverts with `AgentProviderMismatch` unless the job pays
+   * exactly this address, so it is not interchangeable with the owner.
+   */
   provider: Address | null
+  owner: Address | null
+  /** Atomic $U, as a decimal string. Below this a job earns no rating. */
+  minAttestableBudget: string
   commerce: Address | null
   hook: Address | null
   paymentToken: Address | null
@@ -62,6 +70,46 @@ export function HireFlow({ config }: { config: HireConfig }) {
   const [summary, setSummary] = useState<SponsoredHireResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+
+  /**
+   * Would this job earn an ERC-8004 rating?
+   *
+   * Mirrors `HallmarkHook._classify`, which freezes the answer at funding
+   * time. A self-dealt or under-budget job settles and pays out perfectly
+   * normally and writes nothing — the quietest possible failure, so it is
+   * surfaced before signing rather than discovered by noticing an absence.
+   */
+  const attestability = useMemo(() => {
+    const me = wallet.address
+    const payee = config.provider
+    const same = (a: string | null, b: string | null) =>
+      a !== null && b !== null && a.toLowerCase() === b.toLowerCase()
+
+    if (me !== null && (same(me, payee) || same(me, config.owner))) {
+      return {
+        ok: false,
+        detail:
+          'You are this agent’s payee or owner. The escrow will settle the job and pay ' +
+          'out, but the hook writes no ERC-8004 rating — you cannot build a reputation ' +
+          'by hiring yourself. The same rule applies to us.',
+      }
+    }
+    try {
+      if (parseUnits(budget.trim(), 18) < BigInt(config.minAttestableBudget)) {
+        return {
+          ok: false,
+          detail:
+            `Below the escrow’s minimum attestable budget of ` +
+            `${formatU(BigInt(config.minAttestableBudget))} $U. The job settles normally ` +
+            'and the agent is paid, but it earns no rating — the floor is what forging ' +
+            'an attestation has to cost.',
+        }
+      }
+    } catch {
+      // An unparseable budget is reported by the quote below, not here.
+    }
+    return { ok: true, detail: '' }
+  }, [wallet.address, config.provider, config.owner, config.minAttestableBudget, budget])
 
   const quote = useMemo(() => {
     try {
@@ -184,6 +232,9 @@ export function HireFlow({ config }: { config: HireConfig }) {
         // The client is also the evaluator here, which is what makes a
         // one-person demo able to settle. In production the evaluator is a
         // third party or the optimistic policy contract.
+        // config.provider is the agent's *payee*, not merely its owner. The
+        // hook reverts with AgentProviderMismatch if these disagree, which is
+        // what stops anyone writing reputation for an agent they never paid.
         args: [config.provider, account, expiredAt, task.slice(0, 2000), config.hook],
       })
       record({
@@ -276,14 +327,20 @@ export function HireFlow({ config }: { config: HireConfig }) {
       })
     } catch (cause) {
       const message = describeWalletError(cause)
-      const isRefusal = /NoFreshEvidence/i.test(String(cause))
+      const raw = String(cause)
+      const isRefusal = /NoFreshEvidence/i.test(raw)
+      const isMismatch = /AgentProviderMismatch/i.test(raw)
       record({
         name: current ?? 'Transaction',
         status: isRefusal ? 'refused' : 'failed',
         detail: isRefusal
           ? 'The escrow reverted with NoFreshEvidence. Nothing was spent — the guard bit before ' +
             'the tokens moved, which is exactly what it is for.'
-          : message,
+          : isMismatch
+            ? 'The escrow reverted with AgentProviderMismatch: this job does not pay the agent ' +
+              'it names. The agent has changed its registered wallet since this page loaded — ' +
+              'reload and try again. Nothing was spent.'
+            : message,
         txHash: null,
         gasLimit: null,
       })
@@ -404,6 +461,18 @@ export function HireFlow({ config }: { config: HireConfig }) {
             <span>{quote === null ? '—' : formatU(quote.net)} $U</span>
           </div>
         </div>
+
+        {!attestability.ok && (
+          <div style={{ marginTop: 'var(--sp-4)' }}>
+            <Callout tone="warn" title="This job would not earn an on-chain rating" role="status">
+              <p>{attestability.detail}</p>
+              <p>
+                Nothing stops you running it — the work still happens and the agent is still
+                paid. It just will not add to what anyone else can verify about this agent.
+              </p>
+            </Callout>
+          </div>
+        )}
       </Card>
 
       <Card>

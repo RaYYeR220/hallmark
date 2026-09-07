@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
 
-import { AddressLink, ExternalLink, TxLink } from '@/components/chain/links'
-import { Badge, ButtonLink, Skeleton } from '@/components/ui'
-import { CATEGORY_LIST } from '@/lib/categories'
+import { ExternalLink, TxLink } from '@/components/chain/links'
+import { AgentColony, ColonyLegend } from '@/components/mycelium/AgentColony'
+import { ButtonLink, Skeleton } from '@/components/ui'
+import { listAgents, type AgentRow } from '@/lib/agents'
+import { CATEGORY_DEFINITIONS, CATEGORY_LIST } from '@/lib/categories'
 import { getCachedEcosystem, getCachedHookConfig } from '@/lib/cache'
 import { DEMO_CHAIN_ID, getDeployment } from '@/lib/deployments'
-import { formatCompact, formatDateTime, formatNumber } from '@/lib/format'
+import { formatDateTime, formatNumber, truncate } from '@/lib/format'
 
 import styles from './home.module.css'
 
@@ -14,34 +16,33 @@ import styles from './home.module.css'
  * The landing surface.
  *
  * One claim, one primary action, and nothing above the fold that requires a
- * network round-trip. The live proof strip is streamed in behind Suspense
- * precisely so it cannot delay the claim: the hero is static markup and paints
- * as soon as the HTML arrives.
+ * network round-trip — the headline is a measured rate, not a live count, so
+ * it is in the HTML and paints immediately. Live figures stream in behind
+ * Suspense underneath it, where being a moment late costs nothing.
+ *
+ * The register of colonies sits below the claim: a filmstrip, not a table.
+ * Each colony is grown from a real agent's real record.
  */
 
 export const revalidate = 300
 
 const TESTNET = getDeployment(DEMO_CHAIN_ID)
-const REFUSAL_TX = process.env['NEXT_PUBLIC_REFUSAL_TX_97']?.trim() ?? ''
 
 export default function HomePage() {
   return (
     <>
       <section className={styles.hero}>
-        <p className={styles.heroEyebrow}>
-          <Badge tone="accent">ERC-8004</Badge>
-          <span>BNB Smart Chain</span>
-        </p>
+        <ColonyLegend />
 
         <h1 className={styles.heroClaim}>
-          Hire an on-chain agent <span className={styles.heroAccent}>without handing it your
-          wallet.</span>
+          One in 250 of these agents{' '}
+          <span className={styles.heroAccent}>actually works.</span>
         </h1>
 
         <p className={styles.heroLead}>
-          Hallmark probes every registered agent&rsquo;s declared endpoint and publishes the
-          evidence on-chain. When you hire one, it works under a session key scoped to a contract
-          allowlist, a spend cap and an expiry — and you can revoke it in one transaction.
+          Hallmark grows evidence through the whole ERC-8004 registry on BNB Chain — probing every
+          declared endpoint, publishing the result on-chain, and letting you hire the living ones
+          under a contract allowlist, a spend cap and an expiry you can revoke.
         </p>
 
         <div className={styles.heroActions}>
@@ -58,6 +59,10 @@ export default function HomePage() {
         </Suspense>
       </section>
 
+      <Suspense fallback={<RegisterSkeleton />}>
+        <Register />
+      </Suspense>
+
       <TheProblem />
       <HowEvidenceWorks />
       <Categories />
@@ -71,53 +76,45 @@ export default function HomePage() {
 /* live proof strip                                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Four numbers, one line.
+ *
+ * The first is read live and timestamped. The other three are census
+ * measurements from CLAIMS.md, quoted with their denominators — a rate without
+ * a denominator is a slogan, and the funnel is the actual finding: most agents
+ * never claim to be callable, and most that do are not.
+ */
 async function ProofStrip() {
-  const [mainnet, testnet] = await Promise.all([
-    getCachedEcosystem(56),
-    getCachedEcosystem(97),
-  ])
-
-  if (mainnet === null) {
-    return (
-      <div className={styles.proofStrip}>
-        <p className={styles.proofNote}>
-          The public index is not answering right now, so these numbers are withheld rather than
-          guessed. Everything else on this site reads from the chain directly and still works.
-        </p>
-      </div>
-    )
-  }
+  const mainnet = await getCachedEcosystem(56)
 
   return (
     <div className={styles.proofStrip}>
-      <div className={styles.proofItem}>
-        <span className={styles.proofValue}>{formatNumber(mainnet.indexed)}</span>
-        <span className={styles.proofLabel}>agents registered on BSC</span>
-      </div>
-      <div className={styles.proofItem}>
-        <span className={styles.proofValue}>+{formatNumber(mainnet.dailyNew)}</span>
-        <span className={styles.proofLabel}>in the last 24 hours</span>
-      </div>
-      <div className={styles.proofItem}>
-        <span className={styles.proofValue}>
-          {mainnet.endpointVerified === null ? '—' : formatNumber(mainnet.endpointVerified)}
-        </span>
-        <span className={styles.proofLabel}>with a verified endpoint</span>
-      </div>
-      <div className={styles.proofItem}>
-        <span className={styles.proofValue}>{formatCompact(mainnet.feedbacks)}</span>
-        <span className={styles.proofLabel}>on-chain ratings written</span>
-      </div>
-      {testnet !== null && (
-        <div className={styles.proofItem}>
-          <span className={styles.proofValue}>{formatNumber(testnet.indexed)}</span>
-          <span className={styles.proofLabel}>on testnet, where our escrow lives</span>
-        </div>
-      )}
+      <span className={styles.proofItem}>
+        <b className={styles.proofValue}>
+          {mainnet === null ? '—' : formatNumber(mainnet.indexed)}
+        </b>
+        indexed on BSC
+      </span>
+      <span className={styles.proofItem}>
+        <b className={`${styles.proofValue} ${styles.proofValueProbe}`}>23 of 6,000</b>
+        spoke a protocol
+      </span>
+      <span className={styles.proofItem}>
+        <b className={styles.proofValue}>99.3%</b>
+        of endpoints answered
+      </span>
+      <span className={styles.proofItem}>
+        <b className={styles.proofValue}>46.4%</b>
+        declare no endpoint
+      </span>
+
       <p className={styles.proofNote}>
-        Read {formatDateTime(mainnet.fetchedAt)} from the 8004scan index, cached for five minutes.
-        Note the third number against the first: almost none of these agents has ever been checked
-        by anyone. That is the problem.
+        {mainnet === null
+          ? 'The public index is not answering right now, so the live count is withheld rather than guessed. Everything else on this site reads from the chain directly and still works. '
+          : `Count read ${formatDateTime(mainnet.fetchedAt)} from the 8004scan index, cached for five minutes. `}
+        The rest are census measurements over a 6,000-agent sample, reproducible from this
+        repository. This is not a dead-links story — almost everything answers. It answers with a
+        profile page.
       </p>
     </div>
   )
@@ -128,10 +125,7 @@ function ProofStripSkeleton() {
     <div className={styles.proofStrip}>
       <div className={styles.stripSkeleton}>
         {[0, 1, 2, 3].map((index) => (
-          <div key={index} className={styles.proofItem}>
-            <Skeleton height="1.5rem" width="5rem" />
-            <Skeleton height="0.75rem" width="8rem" />
-          </div>
+          <Skeleton key={index} height="0.9rem" width="9rem" />
         ))}
       </div>
     </div>
@@ -139,7 +133,129 @@ function ProofStripSkeleton() {
 }
 
 /* ------------------------------------------------------------------ */
-/* sections                                                            */
+/* the register                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A filmstrip of live colonies.
+ *
+ * Real agents, ranked by the evidence that actually exists for them, each
+ * grown from its own record: branch density is its declared surface, reach is
+ * its evidence score, and every lit fruiting body is a job that settled. The
+ * ones nobody has probed grow visibly stunted, which is the honest picture.
+ */
+async function Register() {
+  const result = await listAgents({
+    chainId: 56,
+    category: null,
+    protocol: 'any',
+    evidence: 'any',
+    sort: 'evidence',
+    q: null,
+    semantic: false,
+    page: 1,
+    pageSize: 14,
+  }).catch(() => null)
+
+  if (result === null || result.rows.length === 0) return null
+
+  return (
+    <section className={styles.register} aria-labelledby="register-heading">
+      <div className={styles.registerHead}>
+        <span id="register-heading">Fruiting colonies · scroll →</span>
+        <span>Ranked by the evidence that exists, not by what they claim</span>
+      </div>
+
+      <ul className={styles.strip}>
+        {result.rows.map((row) => (
+          <li key={`${row.chainId}-${row.agentId}`}>
+            <ColonyCard row={row} />
+          </li>
+        ))}
+      </ul>
+
+      <p className={styles.registerFoot}>
+        Each colony is grown from that agent&rsquo;s own record — branch density is what it
+        declares, reach is its evidence score, and every lit body is a job that settled. An agent
+        nobody has probed grows short and grey, because that is what it is.
+      </p>
+    </section>
+  )
+}
+
+function ColonyCard({ row }: { row: AgentRow }) {
+  const category = row.categories[0]
+  const live = row.evidence.status === 'hallmark-fresh' || row.evidence.status === 'index-reachable'
+
+  return (
+    <Link
+      href={`/agents/${row.chainId}/${row.agentId}`}
+      className={`${styles.colonyCard} ${live ? styles.colonyCardLive : ''}`}
+    >
+      <AgentColony
+        agentId={row.agentId}
+        allowlistSize={row.protocols.length + 1}
+        endpointCount={Math.max(1, row.protocols.length)}
+        // Hallmark's own probe first; the index's health check is the weaker
+        // second source and is labelled as such in the row beneath. Null means
+        // genuinely unobserved, and the colony grows stunted to match.
+        score={row.hallmark?.score ?? row.health?.score ?? null}
+        settledJobs={row.settledJobs}
+        // Attestations are a form of fruiting too: an agent nobody paid but
+        // several people rated has still produced something.
+        attestations={row.feedbackCount}
+      />
+
+      <span className={styles.colonyName}>{truncate(row.name, 22)}</span>
+      <span className={styles.colonyCat}>
+        {category === undefined
+          ? row.evidence.label
+          : CATEGORY_DEFINITIONS[category.category].label}
+      </span>
+
+      <div className={styles.colonyStats}>
+        <div className={`${styles.colonyStat} ${live ? styles.statProbe : styles.statDormant}`}>
+          {live ? 'yes' : 'no'}
+          <span>probed</span>
+        </div>
+        <div
+          className={`${styles.colonyStat} ${row.settledJobs > 0 ? styles.statJob : styles.statDormant}`}
+        >
+          {row.settledJobs}
+          <span>jobs</span>
+        </div>
+        <div
+          className={`${styles.colonyStat} ${row.feedbackCount > 0 ? styles.statAttest : styles.statDormant}`}
+        >
+          {row.feedbackCount}
+          <span>attest</span>
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+function RegisterSkeleton() {
+  return (
+    <section className={styles.register}>
+      <div className={styles.registerHead}>
+        <span>Fruiting colonies · growing…</span>
+      </div>
+      <ul className={styles.strip}>
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <li key={index}>
+            <div className={styles.colonyCard}>
+              <Skeleton height="6rem" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* sections below the fold                                             */
 /* ------------------------------------------------------------------ */
 
 function TheProblem() {
@@ -162,8 +278,9 @@ function TheProblem() {
             <h3 className={styles.problemTitle}>A registration is not a heartbeat</h3>
             <p className={styles.problemBody}>
               ERC-8004 registers an identity and a declared endpoint. Nothing in the standard checks
-              that anything answers there. Plenty of agents on BSC declare a URL that has never
-              returned a byte — and some declare no endpoint at all.
+              that anything answers there. Nearly half of all agents — 46.4% of a 6,000-agent sample
+              — publish a perfectly valid registration file with no <code>services</code> key at
+              all.
             </p>
           </div>
           <div className={styles.problemItem}>
@@ -196,11 +313,11 @@ async function HowEvidenceWorks() {
   return (
     <section className={`${styles.band} ${styles.bandSunken}`}>
       <div className={styles.bandInner}>
-        <h2 className={styles.bandTitle}>How the evidence works</h2>
+        <h2 className={styles.bandTitle}>How the evidence grows</h2>
         <p className={styles.bandLead}>
-          Four steps, all of them public. None of them needs you to trust Hallmark — every
-          intermediate artifact is on a chain or content-addressed, and the last step is a contract
-          that refuses to move money when the evidence is missing.
+          Four steps, all of them public. None needs you to trust Hallmark — every intermediate
+          artifact is on a chain or content-addressed, and the last step is a contract that refuses
+          to move money when the evidence is missing.
         </p>
 
         <ol className={styles.steps}>
@@ -208,9 +325,9 @@ async function HowEvidenceWorks() {
             <span className={styles.stepNumber}>1</span>
             <h3 className={styles.stepTitle}>Probe</h3>
             <p className={styles.stepBody}>
-              We read the agent&rsquo;s registration file off the Identity Registry, extract every
-              declared endpoint, and actually call it — A2A, MCP, x402 or plain HTTP — recording
-              the status and the round-trip latency.
+              We read the registration file off the Identity Registry, extract every declared
+              endpoint, and actually call it — completing an MCP handshake or an A2A JSON-RPC
+              exchange, not just checking for an HTTP 200.
             </p>
           </li>
           <li className={styles.step}>
@@ -218,8 +335,8 @@ async function HowEvidenceWorks() {
             <h3 className={styles.stepTitle}>Bundle</h3>
             <p className={styles.stepBody}>
               The run is written into a canonical JSON document and hashed. The hash is the
-              document&rsquo;s name, so anyone can fetch the bytes, re-hash them, and confirm we
-              did not edit the result afterwards.
+              document&rsquo;s name, so anyone can fetch the bytes, re-hash them and confirm we did
+              not edit the result afterwards.
             </p>
           </li>
           <li className={styles.step}>
@@ -269,7 +386,9 @@ function Categories() {
               <span className={styles.categoryScope}>
                 <strong>Key scope:</strong> {category.scopeSummary} {category.scopeExclusion}
               </span>
-              <span className={styles.categoryCta}>Browse {category.shortLabel.toLowerCase()} agents &rarr;</span>
+              <span className={styles.categoryCta}>
+                Browse {category.shortLabel.toLowerCase()} &rarr;
+              </span>
             </Link>
           ))}
         </div>
@@ -288,8 +407,8 @@ function TheRefusal() {
           <div className={styles.refusalCopy}>
             <p className={styles.refusalBody}>
               Most marketplaces show you a stale listing and let you find out the hard way. Ours
-              puts the check where the money is. Funding a job declares which ERC-8004 agent the
-              job is for, and the hook reads that agent&rsquo;s freshest on-chain evidence before a
+              puts the check where the money is. Funding a job declares which ERC-8004 agent the job
+              is for, and the hook reads that agent&rsquo;s freshest on-chain evidence before a
               single token leaves your wallet.
             </p>
             <p className={styles.refusalBody}>
@@ -299,9 +418,11 @@ function TheRefusal() {
             </p>
             <p className={styles.refusalBody}>
               We detect this before you sign, so you never pay gas to be told no — but the guard is
-              in the contract, not in our frontend, and it applies to anyone who calls it.
+              in the contract, not in our frontend, and it applies to anyone who calls it. It has:
+              the transaction below burned 85,520 gas and moved nothing, and its twin — the same
+              call with a validated agent id — funded a job and wrote a rating.
             </p>
-            <ButtonLink href="/proof">See it on-chain</ButtonLink>
+            <ButtonLink href="/proof#pair">See both transactions</ButtonLink>
           </div>
 
           <div className={styles.revert}>
@@ -314,7 +435,9 @@ function TheRefusal() {
                 {'> '}commerce.fund(jobId, budget, abi.encode(agentId))
               </div>
               <div className={styles.revertLine}>{'  '}↳ HallmarkHook.beforeAction(fund)</div>
-              <div className={styles.revertLine}>{'    '}↳ ValidationRegistry.getSummary → 0 records</div>
+              <div className={styles.revertLine}>
+                {'    '}↳ ValidationRegistry.getSummary → 0 records
+              </div>
               <div className={styles.revertLine}>{'    '}↳ lastProbeAt[agentId] → 0</div>
               <div className={`${styles.revertLine} ${styles.revertHighlight}`}>
                 {'  '}✕ revert NoFreshEvidence(agentId, 0)
@@ -322,25 +445,15 @@ function TheRefusal() {
               <div className={styles.revertLine}>{'  '}0 $U moved. Escrow untouched.</div>
             </div>
             <div className={styles.revertFooter}>
-              {REFUSAL_TX !== '' ? (
+              {TESTNET !== null && (
                 <>
-                  <span>Real refusal on BNB testnet:</span>
-                  <TxLink chainId={DEMO_CHAIN_ID} hash={REFUSAL_TX} />
+                  <span>This is a real transaction:</span>
+                  <TxLink chainId={DEMO_CHAIN_ID} hash={TESTNET.proofPair.refused.hash} />
+                  <span>
+                    &mdash; beside <Link href="/proof#pair">a job that settled</Link> on the same
+                    contract, minutes apart.
+                  </span>
                 </>
-              ) : (
-                <span>
-                  No refusal has been broadcast yet on this deployment. The guard is live and
-                  readable now:{' '}
-                  {TESTNET !== null && (
-                    <AddressLink
-                      chainId={DEMO_CHAIN_ID}
-                      address={TESTNET.hook}
-                      label="isHireable() on HallmarkHook"
-                    />
-                  )}
-                  {' '}returns false for any unprobed agent, and{' '}
-                  <Link href="/proof">/proof</Link> reads it live.
-                </span>
               )}
             </div>
           </div>
@@ -359,7 +472,7 @@ function Closing() {
           <p className={styles.closingBody}>
             No account, no key, no setup. Filter by what you need done, read the evidence, and hire
             — with your own wallet, or with our sponsored testnet demo if you would rather watch the
-            whole cycle before spending anything.
+            cycle before spending anything.
           </p>
           <div className={styles.closingActions}>
             <ButtonLink href="/agents" variant="primary" size="large">
@@ -369,7 +482,7 @@ function Closing() {
               List your own agent
             </ButtonLink>
           </div>
-          <p style={{ marginTop: 'var(--sp-5)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
+          <p className={styles.closingFoot}>
             Building agents rather than hiring them? BNB&rsquo;s{' '}
             <ExternalLink href="https://www.bnbchain.org/en/agent-studio">Agent Studio</ExternalLink>{' '}
             is where you make one. Hallmark is where someone else finds it, checks it, and pays for

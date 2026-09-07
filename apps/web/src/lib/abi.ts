@@ -1,23 +1,20 @@
 /**
- * ABIs for Hallmark's own deployment.
+ * DO NOT replace these with the ABIs from `@hallmark/core` — they describe
+ * different contracts. This file is the source of truth for the app.
  *
- * These are transcribed from `contracts/src/*.sol` rather than imported from
- * `@hallmark/core`. That is deliberate, and the reason is worth writing down:
+ * Transcribed from `contracts/src/*.sol` and verified with live `eth_call`s
+ * against chain 97. The two traps, both of which fail silently rather than
+ * loudly:
  *
  *  - `core`'s `agenticCommerceAbi` describes Altana's canonical ERC-8183
- *    kernel, which has a different `createJob` signature and a different `Job`
- *    shape from Hallmark's `AgenticCommerceHooked`. Using it here would encode
- *    the wrong calldata.
- *  - `core`'s `hallmarkHookAbi` declares `agentRecord` as six flat return
- *    values; the deployed contract returns a five-field struct
- *    (jobsFunded, jobsCompleted, jobsRejected, jobsExpired, totalDeliverySeconds).
- *    Decoding against the wrong shape produces plausible-looking wrong numbers,
- *    which is the worst kind of wrong on a page whose whole claim is accuracy.
+ *    kernel, not Hallmark's `AgenticCommerceHooked`. Different `createJob`
+ *    signature, different `Job` shape. Using it encodes the wrong calldata.
+ *  - `core`'s `hallmarkHookAbi` declares `agentRecord` as flat return values;
+ *    the deployed contract returns a struct. Decoding against the wrong shape
+ *    produces plausible-looking wrong numbers, which is the worst kind of
+ *    wrong on a page whose entire claim is accuracy.
  *
- * Both were verified with live `eth_call`s against chain 97 before being
- * written down here.
- *
- * The ERC-8004 registry ABIs are imported from core unchanged — those match
+ * The ERC-8004 registry ABIs are imported from core unchanged — those do match
  * the deployed registries.
  */
 
@@ -34,6 +31,15 @@ export const hallmarkHookAbi = [
     ],
   },
   {
+    // Six fields, matching the deployed hook exactly.
+    //
+    // This was briefly read under two candidate shapes because the contract
+    // was mid-audit and the struct was in flux. That fallback has been removed
+    // deliberately: measured against the frozen deployment, BOTH a five-field
+    // and a six-field decode *succeed* — viem tolerates the trailing word — and
+    // the five-field one reads `jobsStalled` as `totalDeliverySeconds`. A
+    // fallback that can silently pick the wrong interpretation is worse than no
+    // fallback, so there is now one shape and it is the right one.
     type: 'function',
     name: 'agentRecord',
     stateMutability: 'view',
@@ -47,10 +53,33 @@ export const hallmarkHookAbi = [
           { name: 'jobsCompleted', type: 'uint32' },
           { name: 'jobsRejected', type: 'uint32' },
           { name: 'jobsExpired', type: 'uint32' },
+          { name: 'jobsStalled', type: 'uint32' },
           { name: 'totalDeliverySeconds', type: 'uint64' },
         ],
       },
     ],
+  },
+  {
+    // Who this job pays, and whether its outcome will earn an attestation.
+    // Decided at funding time and frozen there, so a later change to the
+    // rules cannot retroactively rewrite whether a settled job was arm's-length.
+    type: 'function',
+    name: 'jobBinding',
+    stateMutability: 'view',
+    inputs: [{ name: 'jobId', type: 'uint256' }],
+    outputs: [
+      { name: 'client', type: 'address' },
+      { name: 'attestability', type: 'uint8' },
+    ],
+  },
+  {
+    // Below this, a settled job pays out but writes no ERC-8004 rating. The
+    // floor is what a forged attestation has to cost.
+    type: 'function',
+    name: 'minAttestableBudget',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
@@ -205,49 +234,23 @@ export const hallmarkHookAbi = [
   { type: 'error', name: 'UnknownAgent', inputs: [{ name: 'agentId', type: 'uint256' }] },
   { type: 'error', name: 'AgentNotDeclared', inputs: [] },
   {
+    // The job pays someone other than the agent it names. Added in the audit
+    // pass: without it you could write reputation for an agent you never paid.
+    type: 'error',
+    name: 'AgentProviderMismatch',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'expected', type: 'address' },
+      { name: 'provider', type: 'address' },
+    ],
+  },
+  { type: 'error', name: 'EvidenceReadFailed', inputs: [{ name: 'agentId', type: 'uint256' }] },
+  {
     type: 'error',
     name: 'InsufficientGasForEvidenceCheck',
     inputs: [
       { name: 'gasLeft', type: 'uint256' },
       { name: 'required', type: 'uint256' },
-    ],
-  },
-] as const
-
-/**
- * `agentRecord`, with the six-field struct.
- *
- * The deployed hook returns a five-field `Record`; the contract source has
- * since grown a `jobsStalled` counter, inserted before `totalDeliverySeconds`.
- * Both shapes are static structs, so the encoding is a bare run of 32-byte
- * words — decoding six-field data with a five-field ABI silently reads
- * `jobsStalled` as the delivery total, which is a wrong number rather than an
- * error, and wrong numbers are the one thing this product cannot ship.
- *
- * So both are attempted in the same multicall and whichever decodes cleanly is
- * used. It costs one extra entry per agent in a batch that measures at 160ms,
- * and it means the app keeps working across the redeploy without anyone having
- * to remember to change this file on the day.
- */
-export const hallmarkHookRecordV2Abi = [
-  {
-    type: 'function',
-    name: 'agentRecord',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'jobsFunded', type: 'uint32' },
-          { name: 'jobsCompleted', type: 'uint32' },
-          { name: 'jobsRejected', type: 'uint32' },
-          { name: 'jobsExpired', type: 'uint32' },
-          { name: 'jobsStalled', type: 'uint32' },
-          { name: 'totalDeliverySeconds', type: 'uint64' },
-        ],
-      },
     ],
   },
 ] as const

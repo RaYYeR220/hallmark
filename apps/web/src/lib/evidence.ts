@@ -3,7 +3,7 @@ import 'server-only'
 import { unstable_cache } from 'next/cache'
 import type { SupportedChainId } from '@hallmark/core'
 
-import { hallmarkHookAbi, hallmarkHookRecordV2Abi } from './abi'
+import { hallmarkHookAbi } from './abi'
 import { multicallAddressFor, publicClientFor } from './chain'
 import { getDeployment } from './deployments'
 
@@ -35,8 +35,8 @@ export type HallmarkEvidence = {
   jobsCompleted: number
   jobsRejected: number
   jobsExpired: number
-  /** Funded, delivered, and then never settled either way. Newer hooks only. */
-  jobsStalled: number | null
+  /** Funded and delivered, then never settled either way. */
+  jobsStalled: number
   /** Mean funding-to-submission time across completed jobs, seconds. */
   averageDeliverySeconds: number | null
 }
@@ -47,6 +47,17 @@ export type HookConfig = {
   maxEvidenceAge: number
   /** Minimum score the gate accepts, 0…100. */
   minValidationScore: number
+  /**
+   * Atomic $U, as a decimal string. A job funded below this settles and pays
+   * out normally but writes no ERC-8004 rating — the floor is what forging an
+   * attestation has to cost. Read, not assumed: it is owner-settable.
+   *
+   * A string rather than a bigint because this object goes through
+   * `unstable_cache`, which serialises with `JSON.stringify` — and that throws
+   * on a bigint. It throws inside the cache write, so the symptom is not an
+   * error page but every request silently missing the cache and recomputing.
+   */
+  minAttestableBudget: string
   evidenceBaseUri: string | null
 }
 
@@ -59,12 +70,13 @@ export async function readHookConfig(chainId: SupportedChainId): Promise<HookCon
   const base = { address: deployment.hook, abi: hallmarkHookAbi } as const
 
   try {
-    const [attestor, maxAge, minScore, baseUri] = await client.multicall({
+    const [attestor, maxAge, minScore, baseUri, minBudget] = await client.multicall({
       contracts: [
         { ...base, functionName: 'attestor' },
         { ...base, functionName: 'maxEvidenceAge' },
         { ...base, functionName: 'minValidationScore' },
         { ...base, functionName: 'evidenceBaseURI' },
+        { ...base, functionName: 'minAttestableBudget' },
       ],
       allowFailure: true,
       multicallAddress: multicallAddressFor(chainId),
@@ -76,6 +88,10 @@ export async function readHookConfig(chainId: SupportedChainId): Promise<HookCon
       attestor: attestor.result,
       maxEvidenceAge: maxAge.status === 'success' ? Number(maxAge.result) : 86_400,
       minValidationScore: minScore.status === 'success' ? minScore.result : 50,
+      minAttestableBudget: (minBudget !== undefined && minBudget.status === 'success'
+        ? (minBudget.result as bigint)
+        : 10n ** 17n
+      ).toString(),
       evidenceBaseUri:
         baseUri.status === 'success' && baseUri.result !== '' ? baseUri.result : null,
     }
@@ -126,17 +142,6 @@ export async function readEvidenceBatch(
     return [
       { ...base, functionName: 'isHireable' as const, args: [id] as const },
       { ...base, functionName: 'agentRecord' as const, args: [id] as const },
-      // Same call, six-field decode. The deployed hook returns five fields
-      // and the current source returns six; exactly one of these two decodes
-      // cleanly, and taking the one that does keeps the numbers right across
-      // a redeploy instead of silently reading `jobsStalled` as the delivery
-      // total. See the note on `hallmarkHookRecordV2Abi`.
-      {
-        address: deployment.hook,
-        abi: hallmarkHookRecordV2Abi,
-        functionName: 'agentRecord' as const,
-        args: [id] as const,
-      },
       { ...base, functionName: 'averageDeliverySeconds' as const, args: [id] as const },
     ]
   })
@@ -155,20 +160,13 @@ export async function readEvidenceBatch(
   }
 
   agentIds.forEach((agentId, index) => {
-    const hireableEntry = results[index * 4]
-    const recordV1Entry = results[index * 4 + 1]
-    const recordV2Entry = results[index * 4 + 2]
-    const deliveryEntry = results[index * 4 + 3]
+    const hireableEntry = results[index * 3]
+    const recordEntry = results[index * 3 + 1]
+    const deliveryEntry = results[index * 3 + 2]
     if (hireableEntry === undefined || hireableEntry.status !== 'success') return
 
     const [ok, lastEvidenceAt, score] = hireableEntry.result as readonly [boolean, bigint, number]
 
-    // Whichever struct shape the deployed hook actually has is the one that
-    // decodes; the other comes back as a failed entry.
-    const recordEntry =
-      recordV2Entry !== undefined && recordV2Entry.status === 'success'
-        ? recordV2Entry
-        : recordV1Entry
     const record =
       recordEntry !== undefined && recordEntry.status === 'success'
         ? (recordEntry.result as {
@@ -176,7 +174,7 @@ export async function readEvidenceBatch(
             jobsCompleted: number
             jobsRejected: number
             jobsExpired: number
-            jobsStalled?: number
+            jobsStalled: number
             totalDeliverySeconds: bigint
           })
         : null
@@ -196,7 +194,7 @@ export async function readEvidenceBatch(
       jobsCompleted: record?.jobsCompleted ?? 0,
       jobsRejected: record?.jobsRejected ?? 0,
       jobsExpired: record?.jobsExpired ?? 0,
-      jobsStalled: record?.jobsStalled ?? null,
+      jobsStalled: record?.jobsStalled ?? 0,
       averageDeliverySeconds: delivery > 0 ? delivery : null,
     })
   })

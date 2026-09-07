@@ -3,3 +3,6 @@ dist
 .tmp
 .vercel
 *.local
+
+.env.session
+.session/

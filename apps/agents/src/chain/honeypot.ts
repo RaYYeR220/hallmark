@@ -1,13 +1,4 @@
-import {
-  encodeAbiParameters,
-  encodeFunctionData,
-  keccak256,
-  parseEther,
-  toHex,
-  type Address,
-  type Hex,
-  type PublicClient,
-} from 'viem'
+import { encodeAbiParameters, encodeFunctionData, keccak256, parseEther, toHex, type Address, type Hex } from 'viem'
 import { erc20Abi } from '@hallmark/core'
 
 import {
@@ -17,6 +8,7 @@ import {
   pancakeV2FactoryAbi,
   pancakeV2RouterAbi,
 } from './abis.js'
+import type { ChainClient } from './clients.js'
 
 /**
  * Whether the token can actually be sold, measured rather than guessed.
@@ -199,7 +191,7 @@ function short(error: unknown): string {
  * wrote come back out of `balanceOf`", which cannot produce a false positive.
  */
 export async function findBalanceSlot(args: {
-  client: PublicClient
+  client: ChainClient
   token: Address
   holder: Address
 }): Promise<StorageSlot | null> {
@@ -223,7 +215,7 @@ export async function findBalanceSlot(args: {
  * false negative it exists to catch.
  */
 export async function findAllowanceSlot(args: {
-  client: PublicClient
+  client: ChainClient
   token: Address
   owner: Address
   spender: Address
@@ -253,7 +245,7 @@ export async function findAllowanceSlot(args: {
  * a time is minutes rather than seconds.
  */
 async function probeMapping(args: {
-  client: PublicClient
+  client: ChainClient
   token: Address
   readData: Hex
   probe: bigint
@@ -351,7 +343,7 @@ export async function searchMaxAcceptedMin(args: {
 }
 
 export type SimulateArgs = {
-  client: PublicClient
+  client: ChainClient
   token: Address
   sizes?: readonly string[]
   buyers?: readonly Address[]

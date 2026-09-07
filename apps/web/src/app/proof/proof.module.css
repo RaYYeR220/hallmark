@@ -101,10 +101,11 @@
 }
 
 .writeScore {
+  font-family: var(--font-mono);
   font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
-  color: var(--text-ok);
+  /* An attestation. Indigo, everywhere, always. */
+  color: var(--sig-attest);
   min-width: 3rem;
 }
 
@@ -160,4 +161,160 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: var(--sp-4);
+}
+
+/* --- The proof pair: the page's lead ------------------------------------- */
+
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+
+@media (max-width: 60rem) {
+  .pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pairSide {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface-raised);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The refused side carries no signal colour at all — nothing grew there, and
+   that absence is the meaning. Ink and substrate only. */
+.pairRefused {
+  border-color: var(--hypha-strong);
+}
+
+/* The settled side is amber, because amber is a settled job. It is not the
+   probe colour: the probe is what let this job exist, but what happened here
+   is money moving and a rating being written. */
+.pairSettled {
+  border-color: color-mix(in srgb, var(--sig-job) 60%, var(--border));
+}
+
+.pairHead {
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.pairHeadRefused {
+  background: var(--surface-bad-soft);
+}
+
+.pairHeadSettled {
+  background: var(--sig-job-soft);
+}
+
+.pairVerdict {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.pairVerdictRefused {
+  color: var(--text);
+}
+
+.pairVerdictSettled {
+  color: var(--text-warn);
+}
+
+.pairAgent {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.pairBody {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  flex: 1;
+}
+
+.pairRow {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+  align-items: baseline;
+}
+
+.pairKey {
+  color: var(--text-muted);
+}
+
+.pairValue {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.pairCode {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.pairCodeBad {
+  color: var(--text);
+  font-weight: var(--fw-bold);
+}
+
+.pairFooter {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  font-size: var(--fs-xs);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  align-items: baseline;
+}
+
+/* Neutral: this panel is the control in the experiment, so it takes none of
+   the three signal colours. */
+.sameness {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--blob-2);
+  background: var(--surface-sunken);
+  font-size: var(--fs-sm);
+}
+
+.samenessList {
+  margin: var(--sp-3) 0 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.samenessList code {
+  color: var(--text);
+}
+
+.receipt {
+  margin-top: var(--sp-4);
 }

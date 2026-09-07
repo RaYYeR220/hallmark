@@ -1,6 +1,5 @@
 import { getChain, isSupportedChainId, type SupportedChainId } from '@hallmark/core'
-import type { Address, PublicClient } from 'viem'
-
+import type { Address } from 'viem'
 import {
   liquidationPriceFor,
   planRepay,
@@ -412,4 +411,3 @@ function pickVolatileMarket(account: VenusAccount, chainId: SupportedChainId): A
   )
 }
 
-export type { PublicClient }

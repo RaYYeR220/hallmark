@@ -1,5 +1,5 @@
-import { getAddress, type Address, type Hex, type PublicClient } from 'viem'
-
+import { getAddress, type Address, type Hex } from 'viem'
+import type { ChainClient } from './clients.js'
 /**
  * Finding the code that actually runs.
  *
@@ -100,7 +100,7 @@ const implementationGetterAbi = [
 ] as const
 
 export async function detectProxy(
-  client: PublicClient,
+  client: ChainClient,
   address: Address,
 ): Promise<ProxyDetection> {
   const evidence: ProxyDetection['evidence'] = []
@@ -259,7 +259,7 @@ export async function detectProxy(
   )
 }
 
-async function readSlot(client: PublicClient, address: Address, slot: Hex): Promise<Hex | null> {
+async function readSlot(client: ChainClient, address: Address, slot: Hex): Promise<Hex | null> {
   return (await client.getStorageAt({ address, slot }).catch(() => null)) ?? null
 }
 

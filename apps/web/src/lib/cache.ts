@@ -30,12 +30,34 @@ export const HOOK_CONFIG_TTL_SECONDS = 3_600
 /** The highest minted agent id. Climbs steadily; cheap to be slightly behind. */
 export const HIGHEST_ID_TTL_SECONDS = 900
 
-export const getCachedEcosystem = unstable_cache(
-  async (chainId: SupportedChainId): Promise<EcosystemSnapshot | null> =>
-    getEcosystemSnapshot(chainId),
+/**
+ * Never cache a failure.
+ *
+ * `getEcosystemSnapshot` returns null when the index does not answer, and
+ * `unstable_cache` will happily store that null for the full window — so one
+ * transient blip blanks the landing page's headline count for five minutes and
+ * every subsequent request is served the failure from cache without retrying.
+ * That is exactly what happened once, and the symptom ("the public index is
+ * not answering") outlived the outage by minutes.
+ *
+ * A thrown error is not cached, so the inner function throws and the wrapper
+ * turns it back into a null. The next request retries.
+ */
+const cachedEcosystem = unstable_cache(
+  async (chainId: SupportedChainId): Promise<EcosystemSnapshot> => {
+    const snapshot = await getEcosystemSnapshot(chainId)
+    if (snapshot === null) throw new Error(`ecosystem snapshot unavailable for chain ${chainId}`)
+    return snapshot
+  },
   ['ecosystem-snapshot'],
   { revalidate: ECOSYSTEM_TTL_SECONDS, tags: ['ecosystem'] },
 )
+
+export async function getCachedEcosystem(
+  chainId: SupportedChainId,
+): Promise<EcosystemSnapshot | null> {
+  return cachedEcosystem(chainId).catch(() => null)
+}
 
 // Defined in `evidence.ts`, beside the uncached read it wraps, and re-exported
 // here so every caching decision in the app is still listed in one file.

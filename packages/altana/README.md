@@ -74,6 +74,27 @@ Two things make the refusal path better than a raw relay code:
 Status bands follow EIP-5792: `100–199` in flight, `200–299` success,
 `300–499` rejected before inclusion, `500+` reverted on-chain.
 
+### The band does not cover the two refusals you actually care about
+
+Measured against the live testnet relay, an over-cap spend and an off-allowlist
+call **never produce a 300–499 status at all.** The relay rejects both as typed
+errors at `wallet_prepareCalls` — `ExceededSpendLimit` and `UnauthorizedCall`,
+each naming the key hash, the target and the calldata — because it never gets
+as far as building a bundle to give a status to. The 300–499 band belongs to
+the execute path, which a refused call never reaches.
+
+`outcomeFromThrow` currently only maps to `refused` when the error text carries
+`relay code NNN`, so those two land as `kind: 'reverted', statusCode: 0`. That
+is wrong: nothing reverted and nothing reached the chain. The typed error is
+better evidence than a status code would have been, but the mapping needs to
+recognise it, and until it does **a caller using `executeWithSession` directly
+is misled about the two canonical refusals.**
+
+Hallmark's own agents are unaffected — `executeIntent` locates the blocking
+rule itself before handing anything to the executor, so `act` reports `refused`
+with the rule that blocked it. This is written down rather than quietly fixed
+because the package's headline claim did not hold and someone should know.
+
 ## Policies
 
 `AgentPolicy` is our vocabulary — every rule carries the sentence the UI shows,

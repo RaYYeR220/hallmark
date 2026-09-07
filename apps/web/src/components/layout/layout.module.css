@@ -1,11 +1,13 @@
-/* --- Header -------------------------------------------------------------- */
+/* --- Header ----------------------------------------------------------------
+   The rail. Sits on the substrate rather than covering it: a scrim rather
+   than a solid bar, so the colony keeps creeping behind the navigation. */
 
 .header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--scrim);
+  backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -22,24 +24,23 @@
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
-  font-weight: var(--fw-semibold);
+  gap: var(--sp-3);
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
   font-size: var(--fs-md);
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   text-decoration: none;
   flex: none;
 }
 
+/* A spore. Magenta, because the mark stands for the probe that starts
+   everything, and organic because nothing in this language is a square. */
 .brandMark {
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: var(--radius-xs);
-  background: var(--accent);
-  display: grid;
-  place-items: center;
-  color: var(--accent-contrast);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: var(--blob-3);
+  background: var(--sig-probe);
   flex: none;
 }
 
@@ -58,15 +59,18 @@
 }
 
 .navLink {
-  padding: var(--sp-1) var(--sp-3);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--blob-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
   text-decoration: none;
   white-space: nowrap;
   transition:
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+    background var(--dur-fast) linear,
+    color var(--dur-fast) linear;
 }
 
 .navLink:hover {
@@ -74,10 +78,11 @@
   color: var(--text);
 }
 
+/* The current section is marked by the probe colour, the same magenta the
+   spore in the wordmark uses. */
 .navLinkActive {
-  color: var(--text);
-  background: var(--surface-sunken);
-  font-weight: var(--fw-medium);
+  color: var(--text-accent);
+  background: var(--surface-accent-soft);
 }
 
 .headerActions {
@@ -106,28 +111,31 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius-sm);
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: var(--blob-4);
   border: 1px solid var(--border);
   background: var(--surface-raised);
   color: var(--text-secondary);
   transition:
-    color var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
+    transform var(--dur-base) var(--ease),
+    color var(--dur-fast) linear;
 }
 
 .themeToggle:hover {
+  transform: scale(1.06);
   color: var(--text);
-  border-color: var(--border-strong);
 }
 
 /* --- Page shell ---------------------------------------------------------- */
 
+/* Every page sits above the substrate. */
 .page {
+  position: relative;
+  z-index: 1;
   max-width: var(--width-page);
   margin: 0 auto;
-  padding: var(--sp-7) var(--sp-5) var(--sp-9);
+  padding: var(--sp-7) var(--sp-6) var(--sp-9);
 }
 
 .pageWide {
@@ -141,10 +149,13 @@
 .breadcrumb {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-xs);
+  gap: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-muted);
-  margin-bottom: var(--sp-3);
+  margin-bottom: var(--sp-4);
   flex-wrap: wrap;
 }
 
@@ -164,11 +175,21 @@
   }
 }
 
+/* Cards and panels need a ground of their own where they overlap the
+   colony, or the hyphae read straight through the text. */
+.onSubstrate {
+  background: var(--scrim);
+  backdrop-filter: blur(8px);
+}
+
 /* --- Footer -------------------------------------------------------------- */
 
 .footer {
+  position: relative;
+  z-index: 1;
   border-top: 1px solid var(--border);
-  background: var(--surface-sunken);
+  background: var(--scrim);
+  backdrop-filter: blur(14px);
   margin-top: var(--sp-9);
 }
 
@@ -199,8 +220,8 @@
 }
 
 .footerHeading {
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);

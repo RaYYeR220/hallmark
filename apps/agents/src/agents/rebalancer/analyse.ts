@@ -94,7 +94,21 @@ export type RebalanceDecision = {
       priceImpactBps: number | null
       detail: string
     } | null
+    /** Gas only. Named so it cannot be mistaken for the total. */
+    gasUsd: number | null
+    /**
+     * The swap leg: pool fee plus price impact, in dollars.
+     *
+     * On a v3 exact-input swap the fee is taken out of the output, so a quote
+     * compared against the pool mid already contains both. Without a quote
+     * this falls back to the fee tier alone, which is a floor rather than an
+     * estimate, and `basis` says which you are looking at.
+     */
+    swapCostUsd: number | null
+    swapCostBasis: 'quoted' | 'fee-tier-floor' | 'no-swap' | 'unavailable'
+    /** Gas plus swap. Genuinely total, or null — never quietly gas-only. */
     totalUsd: number | null
+    totalDetail: string
   } | null
   recoup: {
     poolApr24hPct: number | null
@@ -506,14 +520,58 @@ export async function analyseRebalance(
       }
     }
 
-    const swapCostUsd =
-      priceImpactBps !== null && totalUsd !== null
-        ? // Impact applies to the swapped leg, not the whole position.
-          (Math.abs(priceImpactBps) / 10_000) *
-          (Number(swap.amountIn) /
-            10 ** (swap.sellToken0 ? position.token0.decimals : position.token1.decimals)) *
-          ((swap.sellToken0 ? pair.token0.usd : pair.token1.usd) ?? 0)
-        : null
+    // The swap leg, in dollars.
+    //
+    // This field was gas-only and about 133x low: it sized an 8,372 USDT ratio
+    // swap whose pool fee alone is over four dollars and reported three cents.
+    // The prose said "plus the ratio swap" while the machine-readable number
+    // did not include it, which is worse than either being wrong alone —
+    // a caller integrates the field, not the paragraph.
+    const swappedTokenUsd = (swap.sellToken0 ? pair.token0.usd : pair.token1.usd) ?? null
+    const swappedUnits =
+      Number(swap.amountIn) /
+      10 ** (swap.sellToken0 ? position.token0.decimals : position.token1.decimals)
+    const swappedNotionalUsd = swappedTokenUsd === null ? null : swappedUnits * swappedTokenUsd
+
+    let swapCostUsd: number | null = null
+    let swapCostBasis: 'quoted' | 'fee-tier-floor' | 'no-swap' | 'unavailable' = 'unavailable'
+
+    if (!swap.needed) {
+      swapCostUsd = 0
+      swapCostBasis = 'no-swap'
+    } else if (priceImpactBps !== null && swappedNotionalUsd !== null) {
+      // A quote already carries the fee: on an exact-input swap the fee comes
+      // out of the output, so measuring the output against the pool mid
+      // captures fee and slippage together.
+      swapCostUsd = (Math.abs(priceImpactBps) / 10_000) * swappedNotionalUsd
+      swapCostBasis = 'quoted'
+    } else if (swappedNotionalUsd !== null) {
+      // No quote. The fee tier is the part that is knowable without one, and
+      // it dominates: it is a floor, and labelled as one.
+      swapCostUsd = swappedNotionalUsd * (position.fee / 1_000_000)
+      swapCostBasis = 'fee-tier-floor'
+    }
+
+    const totalUsd =
+      gas.gasCostUsd === null || swapCostUsd === null ? null : gas.gasCostUsd + swapCostUsd
+    const totalDetail =
+      totalUsd === null
+        ? 'The total could not be priced: ' +
+          (gas.gasCostUsd === null ? 'gas has no USD price. ' : '') +
+          (swapCostUsd === null ? 'the swapped token has no USD price.' : '')
+        : swapCostBasis === 'no-swap'
+          ? `$${totalUsd.toFixed(4)}, all gas — the position already holds the ratio the new ` +
+            'range wants, so there is nothing to swap.'
+          : swapCostBasis === 'quoted'
+            ? `$${totalUsd.toFixed(4)} in total: $${gas.gasCostUsd!.toFixed(4)} of gas over ` +
+              `${gas.steps.length} transactions plus $${swapCostUsd!.toFixed(4)} on the ratio ` +
+              'swap, the latter measured against the pool mid by QuoterV2 and so including both ' +
+              'the fee tier and the price impact.'
+            : `$${totalUsd.toFixed(4)} at least: $${gas.gasCostUsd!.toFixed(4)} of gas plus ` +
+              `$${swapCostUsd!.toFixed(4)} of pool fee at the ${position.fee / 10_000}% tier on a ` +
+              `$${swappedNotionalUsd!.toFixed(2)} swap. This is a floor, not an estimate — ` +
+              'without a live quote the price impact on top of the fee is unknown. Call ' +
+              '`report` for the quoted figure.'
 
     cost = {
       ...gas,
@@ -528,8 +586,11 @@ export async function analyseRebalance(
             detail: swapDetail,
           }
         : { needed: false, tokenIn: '', tokenOut: '', amountIn: '0', quotedOut: null, priceImpactBps: null, detail: swapDetail },
-      totalUsd:
-        gas.gasCostUsd === null ? null : gas.gasCostUsd + (swapCostUsd ?? 0),
+      gasUsd: gas.gasCostUsd,
+      swapCostUsd,
+      swapCostBasis,
+      totalUsd,
+      totalDetail,
     }
 
     if (opts.deep) {
@@ -675,9 +736,11 @@ export async function analyseRebalance(
       : []),
     ...(cost
       ? [
-          `Cost to move: ${cost.gasTotal} gas over ${cost.steps.length} transactions at ` +
-            `${cost.gasPriceWei} wei${cost.gasCostUsd === null ? '' : ` ≈ $${cost.gasCostUsd.toFixed(4)}`}` +
-            `${cost.swap?.needed ? `, plus the ratio swap: ${cost.swap.detail}` : ', no ratio swap needed'}`,
+          `Cost to move: ${cost.totalDetail}`,
+          `Gas alone is ${cost.gasTotal} over ${cost.steps.length} transactions at ` +
+            `${cost.gasPriceWei} wei` +
+            `${cost.gasUsd === null ? '' : ` ≈ $${cost.gasUsd.toFixed(4)}`}` +
+            `${cost.swap?.needed ? `. ${cost.swap.detail}` : '. No ratio swap needed.'}`,
         ]
       : []),
     ...(blocking.length > 0 ? [`Blocking: ${blocking.join(' ')}`] : []),

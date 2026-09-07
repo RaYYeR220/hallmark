@@ -48,8 +48,6 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic'
 
-const REFUSAL_TX = process.env['NEXT_PUBLIC_REFUSAL_TX_97']?.trim() ?? ''
-
 export default function ProofPage() {
   return (
     <div className={layout.page}>
@@ -57,12 +55,16 @@ export default function ProofPage() {
         <SectionHeading
           level={1}
           eyebrow="Verify"
-          title="Everything here is a link"
-          lead="A marketplace that asks you to trust its ratings has not solved the problem it claims to solve. So: the contracts, the evidence, the settled jobs and the refusals, all read live from BNB Chain at the moment you loaded this page."
+          title="Two transactions, one difference"
+          lead="A marketplace that asks you to trust its ratings has not solved the problem it claims to solve. Below are the contracts, the evidence and the settled jobs, all read live from BNB Chain as you loaded this page — but start with the pair. Same contract, same function, same arguments except the agent id."
         />
       </header>
 
       <div className={styles.stack}>
+        <Suspense fallback={<PanelSkeleton title="Reading the two transactions…" />}>
+          <ProofPair />
+        </Suspense>
+
         <WhatRunsWhere />
 
         <Suspense fallback={<PanelSkeleton title="Reading the deployed contracts…" />}>
@@ -282,30 +284,14 @@ async function Deployment() {
         )}
 
         <div style={{ marginTop: 'var(--sp-4)' }}>
-          {REFUSAL_TX !== '' ? (
-            <Callout tone="bad" title="A refusal that actually happened">
-              <p>
-                <TxLink chainId={97} hash={REFUSAL_TX} full /> — a real <code>fund</code> call,
-                reverted by the hook, with no tokens moved.
-              </p>
-            </Callout>
-          ) : (
-            <Callout tone="warn" title="No broadcast refusal on this deployment yet">
-              <p>
-                Nobody has yet paid gas to be told no on this deployment, so there is no reverted
-                transaction to link. Rather than borrow one, the page shows the live read above —
-                the same predicate, from the same contract, evaluated now.
-              </p>
-              <p>
-                The contract-level proofs live in the test suite:{' '}
-                <code>test_Fund_RevertsWhenAgentHasNoEvidence</code>,{' '}
-                <code>test_Fund_RevertsWhenEvidenceIsStale</code> and{' '}
-                <code>test_Fund_RevertsWhenValidationScoreBelowMinimum</code>. Set{' '}
-                <code>NEXT_PUBLIC_REFUSAL_TX_97</code> once a real one is on-chain and it appears
-                here.
-              </p>
-            </Callout>
-          )}
+          <Callout tone="info" title="This is the read, not the receipt">
+            <p>
+              The command above evaluates the gate without spending anything. The transaction
+              where someone actually paid gas to be told no is at the top of this page, and it
+              is the more interesting artifact: a prediction is cheap, a reverted transaction
+              is a fact.
+            </p>
+          </Callout>
         </div>
       </div>
 
@@ -618,6 +604,197 @@ async function Census() {
         <RelativeTime value={mainnet?.fetchedAt ?? new Date().toISOString()} serverNow={serverNow} />
         . Cross-check any single agent against{' '}
         <ExternalLink href={scanAgentUrl(56, 1)}>their page for the same agent</ExternalLink>.
+      </SourceNote>
+    </Card>
+  )
+}
+
+
+/* ------------------------------------------------------------------ */
+/* the pair                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The lead.
+ *
+ * Every other section on this page is evidence that the machinery exists.
+ * This one is evidence that it *bites*, and it is the only argument on the
+ * site that cannot be made with a screenshot: two transactions to the same
+ * address, carrying the same four-byte selector, differing in one argument.
+ * One burned 85,520 gas and moved nothing. The other paid an agent and wrote
+ * a rating that is still readable.
+ */
+async function ProofPair() {
+  const deployment = getDeployment(DEMO_CHAIN_ID)
+  if (deployment === null) return null
+
+  const { refused, settled } = deployment.proofPair
+  const snapshot = await getProofSnapshot(DEMO_CHAIN_ID)
+  const receipt = snapshot.settlementReceipt
+
+  return (
+    <Card id="pair">
+      <SectionHeading
+        eyebrow="The whole argument"
+        title="One agent had evidence. One did not."
+        level={2}
+        lead="Both of these are calls to fund() on the same escrow, with the same selector 0xd2e13f50, made by the same address, minutes apart. The only thing that differs is which ERC-8004 agent the job declared."
+      />
+
+      <div className={styles.pair}>
+        <div className={`${styles.pairSide} ${styles.pairRefused}`}>
+          <div className={`${styles.pairHead} ${styles.pairHeadRefused}`}>
+            <span className={`${styles.pairVerdict} ${styles.pairVerdictRefused}`}>
+              <span aria-hidden="true">✕</span> Reverted
+            </span>
+            <span className={styles.pairAgent}>
+              Agent #{refused.agentId} — a real third-party agent nobody has ever validated
+            </span>
+          </div>
+          <div className={styles.pairBody}>
+            <code className={`${styles.pairCode} ${styles.pairCodeBad}`}>
+              {`fund(jobId, budget, abi.encode(${refused.agentId}))
+  ↳ HallmarkHook.beforeAction(fund)
+  ✕ revert ${refused.error}`}
+            </code>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Status</span>
+              <span className={styles.pairValue}>0x0 — reverted</span>
+            </div>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Gas burned</span>
+              <span className={styles.pairValue}>85,520</span>
+            </div>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Tokens moved</span>
+              <span className={styles.pairValue}>none — the escrow never opened</span>
+            </div>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Error selector</span>
+              <span className={styles.pairValue}>
+                <code>0x8b12be6b</code>
+              </span>
+            </div>
+          </div>
+          <div className={styles.pairFooter}>
+            <span>The refusal:</span>
+            <TxLink chainId={DEMO_CHAIN_ID} hash={refused.hash} />
+          </div>
+        </div>
+
+        <div className={`${styles.pairSide} ${styles.pairSettled}`}>
+          <div className={`${styles.pairHead} ${styles.pairHeadSettled}`}>
+            <span className={`${styles.pairVerdict} ${styles.pairVerdictSettled}`}>
+              <span aria-hidden="true">✓</span> Funded, delivered, settled
+            </span>
+            <span className={styles.pairAgent}>
+              Agent #{settled.agentId} — validated, score 92, tag <code>liveness</code>
+            </span>
+          </div>
+          <div className={styles.pairBody}>
+            <code className={styles.pairCode}>
+              {`fund(jobId, budget, abi.encode(${settled.agentId}))
+  ↳ HallmarkHook.beforeAction(fund)
+  ✓ evidence 92/100, within 24h
+  ↳ escrow funded
+complete(jobId, reason)
+  ↳ HallmarkHook.afterAction(complete)
+  ✓ giveFeedback(${settled.agentId}, 100, "jobcompleted")`}
+            </code>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Status</span>
+              <span className={styles.pairValue}>0x1 — both transactions succeeded</span>
+            </div>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Settlement gas</span>
+              <span className={styles.pairValue}>
+                285,280 used, 450,000 sent
+              </span>
+            </div>
+            <div className={styles.pairRow}>
+              <span className={styles.pairKey}>Result</span>
+              <span className={styles.pairValue}>
+                provider paid, ERC-8004 rating written by the hook
+              </span>
+            </div>
+          </div>
+          <div className={styles.pairFooter}>
+            <span>Fund:</span>
+            <TxLink chainId={DEMO_CHAIN_ID} hash={settled.fund} />
+            <span>Settle:</span>
+            <TxLink chainId={DEMO_CHAIN_ID} hash={settled.complete} />
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.sameness}>
+        <strong>What is identical, so you can rule it out:</strong>
+        <ul className={styles.samenessList}>
+          <li>
+            Same contract — <code>{deployment.commerce}</code>
+          </li>
+          <li>
+            Same function selector — <code>0xd2e13f50</code>, which is{' '}
+            <code>fund(uint256,uint256,bytes)</code>
+          </li>
+          <li>
+            Same caller — <AddressLink chainId={DEMO_CHAIN_ID} address={deployment.attestor} />
+          </li>
+          <li>
+            Same hook attached to both jobs —{' '}
+            <AddressLink chainId={DEMO_CHAIN_ID} address={deployment.hook} />
+          </li>
+          <li>
+            Different <code>agentId</code> in <code>optParams</code>. That is the entire
+            difference, and it decided whether money could move.
+          </li>
+        </ul>
+      </div>
+
+      {receipt !== null && (
+        <div className={styles.receipt}>
+          {receipt.error !== null ? (
+            <Callout tone="warn" title="The rating could not be re-read just now">
+              <p>{receipt.error}</p>
+              <p>
+                The settlement transaction above is still a receipt; this is only the live
+                cross-check failing, and it says so rather than asserting a number it did not get.
+              </p>
+            </Callout>
+          ) : receipt.count > 0 ? (
+            <Callout tone="ok" title="And the rating is still there — read a moment ago">
+              <p>
+                <code>
+                  getSummary({receipt.agentId}, [hook], &quot;jobcompleted&quot;, &quot;&quot;)
+                </code>{' '}
+                returns <strong>({receipt.count}, {receipt.value}, 0)</strong> on the ERC-8004
+                Reputation Registry, and the hook&rsquo;s own address appears in{' '}
+                <code>getClients({receipt.agentId})</code>
+                {receipt.hookIsClient ? '' : ' — except it does not right now, which is worth investigating'}
+                .
+              </p>
+              <p>
+                That is the point of the whole exercise: this rating exists because a job settled,
+                not because anyone typed it. Nobody can write one without first passing the gate on
+                the left.
+              </p>
+            </Callout>
+          ) : (
+            <Callout tone="warn" title="The registry reports no rating from the hook">
+              <p>
+                <code>getSummary({receipt.agentId}, [hook], &quot;jobcompleted&quot;, &quot;&quot;)</code>{' '}
+                returned a count of zero. The settlement transaction is still linked above; if this
+                persists, the receipt did not land and the page will keep saying so.
+              </p>
+            </Callout>
+          )}
+        </div>
+      )}
+
+      <SourceNote>
+        Transaction hashes are configuration — a receipt does not change. The rating beside them is
+        re-read from the Reputation Registry on every request, so if it ever disappears this page
+        stops claiming it.
       </SourceNote>
     </Card>
   )

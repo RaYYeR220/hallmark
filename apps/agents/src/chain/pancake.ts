@@ -4,11 +4,11 @@ import {
   pancakeV3PositionManagerAbi,
   type SupportedChainId,
 } from '@hallmark/core'
-import type { Address, PublicClient } from 'viem'
-
+import type { Address } from 'viem'
 import { pancakeQuoterV2Abi, pancakeV3FactoryAbi } from './abis.js'
 import { getAmountsForLiquidity, sqrtPriceX96ToPrice, tickSpacingForFee, tickToPrice } from './math.js'
 import { readTokenMeta, type TokenMeta } from './tokens.js'
+import type { ChainClient } from './clients.js'
 
 /**
  * PancakeSwap v3 reads.
@@ -54,7 +54,7 @@ export type PositionReadFailure = {
 export type PositionReadResult = ({ ok: true } & PositionView) | PositionReadFailure
 
 export async function readPosition(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   tokenId: bigint
 }): Promise<PositionReadResult> {
@@ -168,7 +168,7 @@ export type PoolView = {
 }
 
 export async function readPool(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   token0: Address
   token1: Address
@@ -239,7 +239,7 @@ export type QuoteResult =
  * returns nothing useful and looks like a broken RPC.
  */
 export async function quoteExactInputSingle(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   tokenIn: Address
   tokenOut: Address

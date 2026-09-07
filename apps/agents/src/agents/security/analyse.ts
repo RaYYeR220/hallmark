@@ -6,6 +6,7 @@ import { analysisTarget, detectProxy, type ProxyDetection } from '../../chain/pr
 import { scanPrivileges, type PrivilegeScan } from '../../chain/privileges.js'
 import { simulateRoundTrip, type HoneypotResult } from '../../chain/honeypot.js'
 import { scanHolders, scanLpLock, type HolderScan, type LpLockScan } from '../../chain/holders.js'
+import { checkSourcify, type SourcifyResult } from '../../chain/sourcify.js'
 import { readTokenMeta, type TokenMeta } from '../../chain/tokens.js'
 import { priceUsdForSymbol } from '../../chain/usd.js'
 import { assertion, failedAssertions, type Assertion } from '../../chain/reconcile.js'
@@ -72,6 +73,7 @@ export type SecurityDecision = {
     detail: string
   }
   privileges: PrivilegeScan
+  sourcify: SourcifyResult | null
   honeypot: HoneypotResult | null
   holders: HolderScan | null
   lp: LpLockScan | null
@@ -225,22 +227,54 @@ export async function analyseSecurity(
   })
 
   // --- 4. source verification ---------------------------------------------
+  // Sourcify, on the *implementation* — which is the whole point of resolving
+  // the proxy first. On the token this agent was built against, the 45-byte
+  // stub is unverified and the implementation behind it is an exact match; a
+  // scanner that checked the address the user typed would report neither.
+  const sourcify = await checkSourcify({
+    address: target,
+    chainId,
+    fetchImpl: ctx.fetch,
+  })
+  sources.push({
+    kind: 'http',
+    label: 'Sourcify',
+    detail:
+      `v2 contract lookup for ${target} on chain ${chainId} — keyless and free. ` +
+      'Etherscan V2 does charge for BNB Chain, which is why this check used to be skipped; ' +
+      'that was a wrong premise, not a missing capability.',
+    url: sourcify.url,
+  })
+
+  const proxyNote = proxy.isProxy
+    ? ` This is the implementation behind the proxy at ${token}, which is the contract that ` +
+      'actually runs; the stub in front of it is not itself verified and would not be.'
+    : ''
+
   findings.push({
     id: 'source-verification',
-    title: 'Source verification not checked',
-    status: 'unknown',
+    title: !sourcify.checked
+      ? 'Source verification unknown'
+      : sourcify.match === 'exact_match'
+        ? 'Source verified — exact match'
+        : sourcify.match === 'match'
+          ? 'Source verified — partial match'
+          : 'No verified source found',
+    status: !sourcify.checked ? 'unknown' : sourcify.match === null ? 'warn' : 'pass',
     severity: 'low',
-    detail:
-      'Etherscan\'s V2 API answers "Free API access is not supported for this chain" for BNB ' +
-      'Chain (56 and 97), so there is no keyless way to confirm verified source. This check is ' +
-      'reported unknown rather than guessed; set BSCSCAN_API_KEY to enable it. Note that every ' +
-      'check above reads bytecode directly and does not need the source.',
+    detail: sourcify.detail + (sourcify.match === null ? '' : proxyNote),
     evidence: {
+      source: 'sourcify',
+      scanned: target,
+      match: sourcify.match,
+      creationMatch: sourcify.creationMatch,
+      runtimeMatch: sourcify.runtimeMatch,
+      verifiedAt: sourcify.verifiedAt,
+      sourcifyUrl: sourcify.url,
       explorer: `${chain.explorer}/address/${target}#code`,
-      keyConfigured: ctx.config.bscscanApiKey !== null,
     },
   })
-  unknowns.push('verified source')
+  if (!sourcify.checked || sourcify.match === null) unknowns.push('verified source')
 
   // --- 5. liquidity and economics -----------------------------------------
   const pair = (await client
@@ -504,6 +538,7 @@ export async function analyseSecurity(
               : ''),
     },
     privileges,
+    sourcify,
     honeypot,
     holders,
     lp,

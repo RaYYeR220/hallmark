@@ -1,12 +1,19 @@
-/* Shared primitives. Every value here resolves to a token. */
+/*
+ * Shared primitives, in the Mycelium language.
+ *
+ * Every value resolves to a token. Three rules carry the direction:
+ * shapes are organic blobs and never rectangles or pills; labels and
+ * numbers are monospaced small-caps; and the only filled button is ink
+ * with a magenta halo, because there is no brand colour to fill it with.
+ */
 
 /* --- Surfaces ------------------------------------------------------------ */
 
 .card {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--sp-5);
+  border-radius: var(--blob-1);
+  padding: var(--sp-5) var(--sp-6);
 }
 
 .cardFlush {
@@ -33,7 +40,10 @@
 }
 
 .cardMeta {
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -45,22 +55,24 @@
 
 .eyebrow {
   display: block;
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-normal);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-3);
 }
 
 .sectionTitle {
   font-size: var(--fs-xl);
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-3);
 }
 
 .sectionLead {
   color: var(--text-secondary);
   max-width: var(--measure);
+  line-height: var(--lh-normal);
 }
 
 /* --- Badges and chips ---------------------------------------------------- */
@@ -68,14 +80,16 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding: 0.15rem var(--sp-2);
-  border-radius: var(--radius-sm);
+  gap: var(--sp-2);
+  padding: 0.18rem var(--sp-3);
+  border-radius: var(--blob-4);
   border: 1px solid var(--border);
   background: var(--surface-sunken);
   color: var(--text-secondary);
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -110,10 +124,11 @@
   color: var(--text-info);
 }
 
+/* A spore, not a dot: the same organic silhouette as everything else. */
 .dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: var(--radius-pill);
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: var(--blob-3);
   background: currentColor;
   flex: none;
 }
@@ -131,27 +146,30 @@
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4);
-  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--blob-2);
   border: 1px solid var(--border-strong);
   background: var(--surface-raised);
-  color: var(--text);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
   text-decoration: none;
   transition:
-    background var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
+    transform var(--dur-base) var(--ease),
+    color var(--dur-fast) linear,
+    border-color var(--dur-fast) linear;
 }
 
 .button:hover:not(:disabled) {
-  background: var(--surface-sunken);
-  border-color: var(--text-faint);
+  transform: scale(1.04);
+  color: var(--text);
+  border-color: var(--hypha-strong);
 }
 
 .button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: scale(0.99);
 }
 
 .button:disabled {
@@ -159,16 +177,26 @@
   cursor: not-allowed;
 }
 
+/* Ink, with a magenta halo that grows on hover. Not a colour slab —
+   there is no brand colour here, and a filled one would have to invent
+   a fourth. */
 .buttonPrimary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: var(--fw-semibold);
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+  color: var(--btn-fg);
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+  letter-spacing: var(--tracking-wide);
+  box-shadow: 0 0 0 0 var(--sig-probe);
+  transition:
+    transform var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) ease;
 }
 
 .buttonPrimary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 3px var(--sig-probe);
 }
 
 .buttonGhost {
@@ -193,9 +221,8 @@
 }
 
 .buttonLarge {
-  padding: var(--sp-3) var(--sp-5);
-  font-size: var(--fs-base);
-  border-radius: var(--radius-md);
+  padding: var(--sp-4) var(--sp-6);
+  font-size: var(--fs-md);
 }
 
 .buttonSmall {
@@ -208,9 +235,9 @@
 .callout {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-4);
-  border-radius: var(--radius-md);
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--blob-2);
   border: 1px solid var(--border);
   border-left-width: 3px;
   background: var(--surface-sunken);
@@ -218,8 +245,11 @@
 }
 
 .calloutTitle {
-  font-weight: var(--fw-semibold);
-  font-size: var(--fs-sm);
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-base);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
   color: var(--text);
 }
 
@@ -241,8 +271,10 @@
   background: var(--surface-warn-soft);
 }
 
+/* Negative states carry no signal colour. Ink and substrate only —
+   absence is the meaning, and the words beside it say so. */
 .calloutBad {
-  border-left-color: var(--text-bad);
+  border-left-color: var(--sub-700);
   background: var(--surface-bad-soft);
 }
 
@@ -272,11 +304,11 @@
 }
 
 .statValue {
+  font-family: var(--font-mono);
   font-size: var(--fs-xl);
-  font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-tight);
   font-variant-numeric: tabular-nums;
-  line-height: var(--lh-tight);
+  line-height: 1.1;
 }
 
 .statValueSmall {
@@ -284,7 +316,10 @@
 }
 
 .statLabel {
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -315,9 +350,11 @@
 }
 
 .rowLabel {
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-weight: var(--fw-medium);
 }
 
 .rowValue {
@@ -335,20 +372,25 @@
 
 /* --- Empty state --------------------------------------------------------- */
 
+/* An empty state is a colony that never fruited: dashed outline, no
+   signal colour anywhere in it. */
 .empty {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--sp-3);
   padding: var(--sp-6) var(--sp-5);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--surface-sunken);
+  border: 1px dashed var(--hypha);
+  border-radius: var(--blob-1);
+  background: transparent;
 }
 
 .emptyTitle {
+  font-family: var(--font-display);
   font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
 }
 
 .emptyBody {
@@ -430,8 +472,8 @@
 
 .code {
   display: block;
-  padding: var(--sp-3);
-  border-radius: var(--radius-sm);
+  padding: var(--sp-4);
+  border-radius: var(--blob-4);
   background: var(--surface-sunken);
   border: 1px solid var(--border);
   font-family: var(--font-mono);
@@ -469,6 +511,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-1) var(--sp-2);
+  margin-top: var(--sp-4);
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
+  line-height: 1.7;
   color: var(--text-faint);
 }

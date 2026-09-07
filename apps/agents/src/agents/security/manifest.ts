@@ -17,7 +17,7 @@ export const securityManifest: AgentManifest = {
     'measured, not inferred: buy-then-sell round trips are simulated at several sizes through ' +
     '`eth_call` state overrides, and the round-trip cost comes back as a number. A contract ' +
     'with no red flags and a guaranteed round-trip loss is still a no, and this says so. ' +
-    'Read-only, and sold over x402.',
+    'Source verification comes from Sourcify, which is keyless and free — and is checked against the implementation, not the proxy stub. Read-only, and sold over x402.',
   version: '0.1.0',
   tags: ['security', 'honeypot', 'rug', 'token', 'bnb-chain', 'trading'],
   policy: null,

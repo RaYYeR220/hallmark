@@ -1,6 +1,6 @@
 import { erc20Abi } from '@hallmark/core'
-import { formatUnits, type Address, type PublicClient } from 'viem'
-
+import { formatUnits, type Address } from 'viem'
+import type { ChainClient } from './clients.js'
 /**
  * ERC-20 metadata, read defensively.
  *
@@ -23,7 +23,7 @@ export type TokenMeta = {
 const cache = new Map<string, TokenMeta>()
 
 export async function readTokenMeta(
-  client: PublicClient,
+  client: ChainClient,
   address: Address,
   opts: { cache?: boolean } = {},
 ): Promise<TokenMeta> {

@@ -5,8 +5,7 @@ import {
   venusVTokenAbi,
   type SupportedChainId,
 } from '@hallmark/core'
-import { encodeFunctionData, type Address, type Hex, type PublicClient } from 'viem'
-
+import { encodeFunctionData, type Address, type Hex } from 'viem'
 import {
   vBnbAbi,
   vTokenDepthAbi,
@@ -15,6 +14,7 @@ import {
   venusComptrollerExtraAbi,
   venusOracleAbi,
 } from './abis.js'
+import type { ChainClient } from './clients.js'
 
 /**
  * Venus reads and the calls that unwind a position.
@@ -85,7 +85,7 @@ function toUnits(amount: bigint, decimals: number): number {
 }
 
 export async function readVenusAccount(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   borrower: Address
 }): Promise<VenusReadResult> {
@@ -520,7 +520,7 @@ export const LEGACY_COMPOUND_BLOCKS_PER_YEAR = 10_512_000
  * slightly off is still worth reporting, and the figure used travels with it.
  */
 export async function measureBlocksPerYear(
-  client: PublicClient,
+  client: ChainClient,
   opts: { span?: bigint } = {},
 ): Promise<{ blocksPerYear: number; measured: boolean; detail: string }> {
   const span = opts.span ?? 100_000n
@@ -595,7 +595,7 @@ export type VenusMarketDepth = {
  * pool, `cashUsd` is what you could withdraw right now.
  */
 export async function listVenusMarkets(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   /** Restrict to these underlying symbols, uppercase. Omit for all markets. */
   symbols?: string[]

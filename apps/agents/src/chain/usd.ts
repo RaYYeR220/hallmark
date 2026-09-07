@@ -1,8 +1,9 @@
-import type { PublicClient } from 'viem'
+
 import type { SupportedChainId } from '@hallmark/core'
 
 import { readChainlinkPrice, type ChainlinkPair, type PriceRead } from './prices.js'
 import type { TokenMeta } from './tokens.js'
+import type { ChainClient } from './clients.js'
 
 /**
  * Turning token amounts into dollars, without inventing any.
@@ -39,7 +40,7 @@ export type UsdPrice = {
 }
 
 export async function priceUsdForSymbol(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   symbol: string
   now: number
@@ -105,7 +106,7 @@ export type PairUsd = {
  * and it is labelled as such.
  */
 export async function priceBothSides(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   token0: TokenMeta
   token1: TokenMeta

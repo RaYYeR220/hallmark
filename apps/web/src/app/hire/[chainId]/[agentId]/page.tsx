@@ -93,7 +93,12 @@ export default async function HirePage({ params, searchParams }: PageProps) {
     chainId,
     agentId,
     agentName: detail.name,
-    provider: detail.owner,
+    // The payee, resolved by the preflight the same way the hook resolves it.
+    // Falls back to the owner only when the registry has no wallet for the
+    // agent, which is also what the contract does.
+    provider: preflight.payee ?? detail.owner,
+    owner: preflight.owner ?? detail.owner,
+    minAttestableBudget: preflight.minAttestableBudget.toString(),
     commerce: deployment?.commerce ?? null,
     hook: deployment?.hook ?? null,
     paymentToken: deployment?.paymentToken ?? null,
@@ -212,7 +217,16 @@ export default async function HirePage({ params, searchParams }: PageProps) {
                 <RelativeTime value={detail.evidence.observedAt} serverNow={serverNow} />
               </Row>
               <Row label="Paid to">
-                <AddressLink chainId={chainId} address={detail.owner} />
+                <AddressLink chainId={chainId} address={preflight.payee ?? detail.owner} />
+                {preflight.payee !== null &&
+                  detail.owner !== null &&
+                  preflight.payee.toLowerCase() !== detail.owner.toLowerCase() && (
+                    <span
+                      style={{ display: 'block', fontSize: 'var(--fs-2xs)', color: 'var(--text-faint)' }}
+                    >
+                      the agent&rsquo;s registered wallet, not its owner
+                    </span>
+                  )}
               </Row>
               <Row label="Declared endpoints">{detail.endpoints.length}</Row>
               <Row label="On-chain ratings">{detail.reputation.feedback.length}</Row>
@@ -248,7 +262,8 @@ export default async function HirePage({ params, searchParams }: PageProps) {
               </li>
               <li>
                 <code>fund(jobId, amount, abi.encode(agentId))</code> — the evidence gate runs
-                here. This is the call that reverts.
+                here, and so does the check that the job pays the agent it names. This is the
+                call that reverts.
               </li>
               <li>
                 <code>complete(jobId, reason)</code> — sent with an explicit 450,000 gas limit so
@@ -298,7 +313,10 @@ function RefusalHero({
 }) {
   const refusal = preflight.refusal
   if (refusal === null) return null
-  const refusalTx = process.env['NEXT_PUBLIC_REFUSAL_TX_97']?.trim() ?? ''
+  // The receipt from the day this gate was proven. Same contract, same
+  // function, a different agent id — which is exactly the situation the
+  // reader is looking at right now.
+  const proven = getDeployment(97)?.proofPair.refused ?? null
 
   return (
     <div className={styles.refusalCard}>
@@ -343,9 +361,11 @@ function RefusalHero({
               {formatDateTime(preflight.readAt)}
             </Row>
           )}
-          {refusalTx !== '' && (
-            <Row label="A real refusal">
-              <TxLink chainId={97} hash={refusalTx} /> — the same revert, on-chain
+          {proven !== null && (
+            <Row label="This has happened">
+              <TxLink chainId={97} hash={proven.hash} /> — the same call against agent #
+              {proven.agentId}, reverted with <code>{proven.error}</code>, 85,520 gas burned
+              and nothing moved
             </Row>
           )}
         </Rows>
@@ -354,7 +374,9 @@ function RefusalHero({
           Most marketplaces would let you pay and find out later.{' '}
           <Link href="/agents?evidence=reachable">
             Browse agents that do have fresh evidence &rarr;
-          </Link>
+          </Link>{' '}
+          or see <Link href="/proof#pair">the refusal beside a settled job</Link> — same
+          contract, same function, one difference.
         </p>
       </div>
     </div>

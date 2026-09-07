@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { isSupportedChainId, type SupportedChainId } from '@hallmark/core'
+import { getChain, isSupportedChainId, type SupportedChainId } from '@hallmark/core'
 
 import { AGENTS, findAgent } from './registry.js'
 import { publicClientFor } from './chain/clients.js'
@@ -10,6 +10,7 @@ import { agentUrls, isPayToConfigured, loadConfig, rpcUrlFor } from './runtime/c
 import { invokeSkill, toJsonSafe } from './runtime/invoke.js'
 import { handleMcp } from './runtime/mcp.js'
 import { altanaExecutor, envSessionProvider } from './runtime/session.js'
+import { describeSessions } from './runtime/sessions.js'
 import { createDefaultStore, type Store } from './runtime/store.js'
 import {
   buildAccept,
@@ -164,6 +165,33 @@ export function buildApp(deps: AppDeps = {}) {
   )
 
   app.get('/healthz', (c) => c.json({ ok: true, at: new Date(now() * 1000).toISOString() }))
+
+  /**
+   * The authorization surface, read live.
+   *
+   * This is what the marketplace's sessions page renders, and it lists every
+   * category whether or not a key exists — an ungranted agent still shows the
+   * policy a grant would authorise, because "what could this thing do to me"
+   * is the question a user is actually asking. Validity comes from a fresh
+   * Keystore read on every request, never a cache, so a revocation shows up
+   * here the moment it lands.
+   */
+  app.get('/sessions', async (c) => {
+    const chainId = chainFrom(c.req.query('chainId'))
+    const views = await describeSessions({ config, sessions, chainId })
+    return c.json({
+      chainId,
+      keystore: getChain(chainId).contracts.altanaKeyStore,
+      checkedAt: new Date(now() * 1000).toISOString(),
+      grantedCount: views.filter((view) => view.granted).length,
+      liveCount: views.filter((view) => view.keystore.valid === true).length,
+      note:
+        'Every entry is read from the Altana Keystore at request time. Anyone can repeat the ' +
+        'check with one eth_call and no credentials: isValidKey(wallet, keyId) on the contract ' +
+        'named above.',
+      sessions: views,
+    })
+  })
 
   /** A directory at the origin's well-known path, for probers that start there. */
   app.get('/.well-known/agent-card.json', (c) =>

@@ -33,17 +33,31 @@ itself are running. This is that line, drawn deliberately rather than left for a
 - **The sponsored demo hire is implemented but has not been exercised.** It is capped, rate-limited and
   locked to chain 97. With no sponsor key configured it renders as unavailable with the reason, rather
   than as a button that fails.
-- **No agent has executed a DeFi transaction under a session key yet.** `act` returns
-  `aborted / no-session` carrying the exact plan it would have submitted. The scope model, the refusal
-  classification and the policy builders are implemented and tested; what has not happened is a real
-  signed execution. Until it has, treat "the agent executes" as designed and tested, not demonstrated.
+- ~~**No agent has executed a DeFi transaction under a session key yet.**~~ **Demonstrated on BNB Chain
+  testnet (97).** The full lifecycle ran end to end under `venusHealthFactorPolicy`: granted
+  ([`0x8e5c0023…b856b4`](https://testnet.bscscan.com/tx/0x8e5c0023b27153df25d9dc1bd880afa67a8cbcb698c81b74e773cd7687b856b4)),
+  a real Venus `mint()` supplying 0.001 tBNB
+  ([`0xbb50ff72…78fd76`](https://testnet.bscscan.com/tx/0xbb50ff72f71a2b0b782842fb9b036ea53e2c737c472b29ae9b72935fbc78fd76)),
+  two refusals from the relay, then revoked
+  ([`0xc5572b8f…f3d2f6`](https://testnet.bscscan.com/tx/0xc5572b8f4f4e68518abd4594874e6a2cf39cd920475cb7ed2fca3b4cfdf3d2f6)).
+  The Keystore read `isValidKey` false → true → false across the sequence, verifiable with one `eth_call`
+  and no credentials. Reproduce with `pnpm session all` in `apps/agents`; the runbook and the verbatim
+  outputs are in that README. Mainnet remains undemonstrated — the budget there is committed to
+  attestations — so read this as "proven on testnet", not "proven on mainnet".
 - **Injected browser wallets cannot grant Altana sessions.** MetaMask and its peers refuse the two
   EIP-7702 signatures the SDK needs. The escrow flow therefore works with any wallet through plain viem,
   and the session-key story is served by direct Keystore reads plus the sponsored path. This is a real
   limitation of the current wallet landscape, not something we routed around quietly.
-- **The Agent Advantage Report's control arm is complete; the agent arm is not.** 155 minutes of manual
-  work across four real subjects is measured, timed and written up, along with an explicit list of where
-  a good agent should *not* beat it. The comparison is not a comparison until both arms have run.
+- ~~**The Agent Advantage Report's control arm is complete; the agent arm is not.**~~ **Both arms have
+  run, and a third party re-scored them.** 155 minutes of manual work against 21.6 minutes of agent work
+  on identical subjects. The independent scorer put the human at **76/80** passing 4 of 4 quality gates
+  and the agents at **56/80** passing 2 of 4 — a wider gap than either arm gave itself. That reviewer
+  also disclosed, unprompted, that its blinding **failed**: the agent-arm files name their own arm in
+  their headings, so it knew the provenance from the first file it opened. We report it as an independent
+  re-score rather than a blind one, because a disclosed contamination is recoverable and a hidden one is
+  not. Three defects it found in our agents are fixed; the fourth — that a `CAUTION` verdict is an
+  abstention rather than the decision the task asked for — is a design point we are still arguing about
+  internally.
 
 ## Things that look like mocks and are not
 

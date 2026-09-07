@@ -1,0 +1,45 @@
+/*
+ * Bespoke Stencil, the display face.
+ *
+ * Declared by hand rather than pulled from Fontshare's stylesheet, and the
+ * reason matters: Fontshare serves protocol-relative `//cdn.fontshare.com`
+ * URLs. Under `https://` they resolve fine; under any other scheme they
+ * resolve to `file://cdn.fontshare.com` and fail — silently, because a font
+ * that 404s just falls back. The page still renders, in the wrong typeface,
+ * with no error anywhere.
+ *
+ * So the URLs below carry an explicit scheme and pinned woff2 hashes. Only the
+ * three weights the app actually uses are loaded; `font-display: swap` means
+ * the condensed fallback paints first rather than blocking.
+ *
+ * Space Mono and IBM Plex Sans Condensed come through `next/font/google`,
+ * which self-hosts them at build time — no third-party request at runtime and
+ * no layout shift.
+ */
+
+@font-face {
+  font-family: 'Bespoke Stencil';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('https://cdn.fontshare.com/wf/4GXF344C5F4FC76XVGJWCP5OZZQ2L2IY/DIGA3TKJXYOVXTGKB5ASFOEHFTLZE2SB/25FALKXSHRBOV5EKV6RVBE46DMW6TCC6.woff2')
+    format('woff2');
+}
+
+@font-face {
+  font-family: 'Bespoke Stencil';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('https://cdn.fontshare.com/wf/4QLX2RSFSRHO2NW4HZ5GTIT4YPVXBUF7/S3M55ORAUN6S3SVT6IYSYWYQPFW2OBV5/Y5L6UK3BGQZ7UOZMOG5O33POYILY43LE.woff2')
+    format('woff2');
+}
+
+@font-face {
+  font-family: 'Bespoke Stencil';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('https://cdn.fontshare.com/wf/STKNIVBLCHAONBJW3CS4KMML2XQDCCP7/XGOBRRCQANN3KGW3SBO735X76YXOMLJ7/FWAZTX4NTMBFWRMB3QRA6OPAOQS3SOQ6.woff2')
+    format('woff2');
+}

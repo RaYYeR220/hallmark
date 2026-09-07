@@ -132,6 +132,13 @@ const cachedAgentPage = unstable_cache(
 /** How long a page render will wait on the index before rendering without it. */
 const INDEX_DEADLINE_MS = 12_000
 
+/**
+ * Tighter on a detail page, because there the index is strictly supplementary:
+ * the registration file, the evidence, the reputation and the validations all
+ * come from the chain, and the page is complete and honest without it.
+ */
+const INDEX_DETAIL_DEADLINE_MS = 6_000
+
 export type AgentRow = {
   chainId: SupportedChainId
   agentId: number
@@ -688,15 +695,32 @@ export const getAgentDetail = cache(async function getAgentDetail(
   const reader = readerFor(chainId)
   const notices: string[] = []
 
+  // The chain is the source of truth and answers in milliseconds; the index is
+  // a convenience that supplies the transaction hashes and the endpoint
+  // verification. So the index gets a deadline and the chain does not — when
+  // the index is sick (it returns 500s under load, and a failing call costs ten
+  // seconds before the client crosses over to its second base) the page still
+  // renders everything that matters, and says the index is missing rather than
+  // making the reader wait forty seconds for a second opinion.
   const [onChain, scanDetail, hallmark, hookConfig] = await Promise.all([
     reader.getAgent(agentId).catch(() => null),
-    fetchAgentDetail(chainId, agentId).catch(() => {
-      notices.push('The public index did not answer for this agent; on-chain data only.')
-      return null
-    }),
+    withDeadline(
+      fetchAgentDetail(chainId, agentId).catch(() => null),
+      INDEX_DETAIL_DEADLINE_MS,
+      null,
+    ),
     readEvidence(chainId, agentId).catch(() => null),
     readHookConfig(chainId).catch(() => null),
   ])
+
+  if (scanDetail === null) {
+    notices.push(
+      'The public index did not answer for this agent in time, so this page is built from the ' +
+        'chain alone. Everything below is still real — what is missing is the index’s own ' +
+        'endpoint check and the transaction hashes beside each rating, which it is the only ' +
+        'source for.',
+    )
+  }
 
   // The chain decides whether this agent exists. The index can be ahead or
   // behind; it is never the arbiter.
@@ -736,7 +760,13 @@ export const getAgentDetail = cache(async function getAgentDetail(
   const [clients, validationHashes, indexedFeedback] = await Promise.all([
     reader.feedbackClients(agentId).catch(() => null),
     reader.agentValidations(agentId).catch(() => null),
-    fetchFeedbacks(chainId, String(agentId)).catch(() => null),
+    // Same treatment: the values and tags come from the registry above, and
+    // this only adds the transaction that wrote each one.
+    withDeadline(
+      fetchFeedbacks(chainId, String(agentId)).catch(() => null),
+      INDEX_DETAIL_DEADLINE_MS,
+      null,
+    ),
   ])
 
   const [feedback, validations] = await Promise.all([

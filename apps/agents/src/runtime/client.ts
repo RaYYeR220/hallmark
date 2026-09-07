@@ -1,9 +1,10 @@
-import type { PublicClient } from 'viem'
+
 import type { SupportedChainId } from '@hallmark/core'
 
 import { publicClientFor } from '../chain/clients.js'
 import { rpcUrlFor } from './config.js'
 import type { SkillContext } from './types.js'
+import type { ChainClient } from '../chain/clients.js'
 
 /**
  * The chain client an agent should read through.
@@ -17,7 +18,7 @@ import type { SkillContext } from './types.js'
  * A caller asking for a chain other than the context's gets a real client for
  * that chain, because there is nothing else it could sensibly get.
  */
-export function clientFor(ctx: SkillContext, chainId: SupportedChainId): PublicClient {
+export function clientFor(ctx: SkillContext, chainId: SupportedChainId): ChainClient {
   if (chainId === ctx.chainId) return ctx.client
   return publicClientFor(chainId, rpcUrlFor(ctx.config, chainId))
 }

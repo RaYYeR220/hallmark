@@ -12,16 +12,11 @@ import {
 import { privateKeyToAccount } from 'viem/accounts'
 import { getChain } from '@hallmark/core'
 
-import {
-  erc20Abi,
-  hallmarkCommerceAbi,
-  SETTLEMENT_GAS_LIMIT,
-  uTokenFaucetAbi,
-} from '@/lib/abi'
+import { erc20Abi, hallmarkCommerceAbi, uTokenFaucetAbi } from '@/lib/abi'
 import { publicClientFor } from '@/lib/chain'
 import { DEMO_CHAIN_ID, getDeployment } from '@/lib/deployments'
 import { env, sponsorStatus } from '@/lib/env'
-import { encodeAgentId, preflightHire, U_DECIMALS } from '@/lib/hire'
+import { classifyAttestability, encodeAgentId, preflightHire, U_DECIMALS } from '@/lib/hire'
 import { callerKey, consume } from '@/lib/rateLimit'
 
 /**
@@ -244,27 +239,82 @@ export async function sponsoredHire(input: {
     }
   }
 
-  // --- who gets paid ------------------------------------------------------
+  // --- who gets paid, and whether the outcome can be attested --------------
 
-  let provider: `0x${string}`
-  try {
-    const { createRegistryReader } = await import('@hallmark/core')
-    const reader = createRegistryReader(DEMO_CHAIN_ID, {
-      ...(env.rpcUrl97 === null ? {} : { rpcUrl: env.rpcUrl97 }),
-    })
-    const onChain = await reader.getAgent(agentId)
-    if (onChain === null) throw new Error(`ownerOf(${agentId}) reverted`)
-    provider = onChain.owner
-  } catch (error) {
-    return fail('Resolve the agent’s owner', error, 'the provider is paid at this address')
+  // The hook reverts unless the job's provider is exactly the agent's payee,
+  // so this is not a cosmetic choice — get it wrong and `fund` fails with
+  // AgentProviderMismatch.
+  const payee = preflight.payee
+  if (payee === null) {
+    return fail(
+      'Resolve the agent’s payee',
+      new Error(`the Identity Registry returned no wallet or owner for agent ${agentId}`),
+      'the escrow refuses a job whose provider is not the agent it names',
+    )
   }
+  const provider: `0x${string}` = payee
+
+  const attestability = classifyAttestability({
+    client: account.address,
+    // The sponsor evaluates its own job, which is fine as long as it is not
+    // also the party being paid — that is exactly what the check below is for.
+    evaluator: account.address,
+    payee,
+    owner: preflight.owner,
+    budgetAtomic: budget,
+    minAttestableBudget: preflight.minAttestableBudget,
+  })
+
+  if (!attestability.willAttest && attestability.reason === 'self-dealt') {
+    // Refusing outright rather than settling silently. A sponsored job that
+    // pays our own agent from our own key would look like a completed demo and
+    // produce no rating at all, which is worse than not running it: it would
+    // put a settled job on-chain that quietly proves nothing.
+    steps.push({
+      name: 'Check the job is arm’s-length',
+      status: 'refused',
+      detail: attestability.detail,
+      txHash: null,
+      gasLimit: null,
+    })
+    return {
+      ok: true,
+      outcome: 'refused-by-gate',
+      headline: 'The sponsor cannot hire this agent without self-dealing.',
+      detail:
+        `The sponsor key (${account.address}) is this agent's own payee or owner, so the hook ` +
+        'would classify the job as self-dealt and write no ERC-8004 rating even though the ' +
+        'escrow settled it. Nothing was signed. Pick an agent the sponsor does not control, or ' +
+        'connect your own wallet — the same rule applies to you, and it is the rule that stops ' +
+        'anyone farming their own reputation.',
+      steps,
+      jobId: null,
+      chainId: DEMO_CHAIN_ID,
+      agentId,
+      finishedAt: finishedAt(),
+    }
+  }
+
   steps.push({
-    name: 'Resolve the agent’s owner',
+    name: 'Resolve the agent’s payee',
     status: 'ok',
-    detail: `Payment on completion goes to ${provider}, read from the Identity Registry.`,
+    detail:
+      `Payment on completion goes to ${provider}, read from the Identity Registry. The hook ` +
+      'requires the job to pay exactly this address, so a job cannot earn reputation for an ' +
+      'agent it never paid.',
     txHash: null,
     gasLimit: null,
   })
+
+  if (!attestability.willAttest) {
+    steps.push({
+      name: 'Check the job earns an attestation',
+      status: 'skipped',
+      detail: `${attestability.detail} Running it anyway, and saying so.`,
+      txHash: null,
+      gasLimit: null,
+    })
+  }
 
   // --- funds --------------------------------------------------------------
 
@@ -431,97 +481,31 @@ export async function sponsoredHire(input: {
     )
   }
 
-  // --- deliver and settle, when the sponsor is also the provider ----------
-
-  const sponsorIsProvider = provider.toLowerCase() === account.address.toLowerCase()
-
-  if (!sponsorIsProvider) {
-    return {
-      ok: true,
-      outcome: 'funded',
-      headline: `Job #${jobId} is funded and waiting on the agent.`,
-      detail:
-        `The escrow now holds ${input.budgetU} $U for agent #${agentId}. Only the provider ` +
-        `(${provider}) can submit a deliverable, and only then can the job be completed — so the ` +
-        'sponsor cannot fake the rest of the cycle, and does not try to. Watch the job below; if ' +
-        'nothing is delivered by expiry, anyone can refund it back to the client.',
-      steps,
-      jobId: jobId.toString(),
-      chainId: DEMO_CHAIN_ID,
-      agentId,
-      finishedAt: finishedAt(),
-    }
-  }
-
-  try {
-    const deliverable = `0x${'11'.repeat(32)}` as Hex
-    const { request } = await publicClient.simulateContract({
-      account,
-      address: deployment.commerce,
-      abi: hallmarkCommerceAbi,
-      functionName: 'submit',
-      args: [jobId, deliverable, '0x'],
-    })
-    const hash = await wallet.writeContract(request)
-    await waitFor(hash)
-    steps.push({
-      name: 'Submit the deliverable',
-      status: 'ok',
-      detail:
-        'This demo agent is operated by the same key that sponsored the hire, so it can play the ' +
-        'seller side too. The hook records funding-to-submission time from this transaction.',
-      txHash: hash,
-      gasLimit: null,
-    })
-  } catch (error) {
-    return fail('Submit the deliverable', error)
-  }
-
-  try {
-    const reason = `0x${'00'.repeat(32)}` as Hex
-    const { request } = await publicClient.simulateContract({
-      account,
-      address: deployment.commerce,
-      abi: hallmarkCommerceAbi,
-      functionName: 'complete',
-      args: [jobId, reason, '0x'],
-      // Explicit, and not negotiable. `complete` triggers the hook's ERC-8004
-      // reputation write, which is wrapped in try/catch. EIP-150 hands an
-      // inner call at most 63/64 of the remaining gas, and a catch turns an
-      // inner out-of-gas into an outer success — so eth_estimateGas converges
-      // on a limit under which the job settles and the rating silently never
-      // lands. The hook's own floor is 250,000, checked after complete's ~66k.
-      gas: SETTLEMENT_GAS_LIMIT,
-    })
-    const hash = await wallet.writeContract(request)
-    await waitFor(hash)
-    steps.push({
-      name: 'Complete and settle',
-      status: 'ok',
-      detail:
-        'Escrow released to the provider, and the hook wrote the outcome into the ERC-8004 ' +
-        'Reputation Registry as a `jobcompleted` entry. Sent with an explicit 450,000 gas limit ' +
-        'because an estimate would starve that write and lose the rating without failing.',
-      txHash: hash,
-      gasLimit: SETTLEMENT_GAS_LIMIT.toString(),
-    })
-  } catch (error) {
-    return fail(
-      'Complete and settle',
-      error,
-      'the escrow still holds the budget; it is refundable to the client after expiry by anyone',
-    )
-  }
+  // --- and this is where the sponsor stops --------------------------------
+  //
+  // It deliberately does not submit a deliverable or settle. Only the provider
+  // can submit, and the sponsor is not the provider — the self-deal guard above
+  // guarantees that. An earlier version played both sides when the sponsor
+  // happened to own the agent; under the audited hook that job is classified
+  // `SelfDealt` at funding time and settles without writing a rating, which
+  // would have produced a demo that looks complete and proves nothing.
+  //
+  // The honest end of a sponsored run is a funded job waiting on a real agent.
+  // A genuinely settled cycle exists and is linked from /proof.
 
   return {
     ok: true,
-    outcome: 'completed',
-    headline: `Job #${jobId} settled.`,
+    outcome: 'funded',
+    headline: `Job #${jobId} is funded and waiting on the agent.`,
     detail:
-      `The full cycle ran on BNB testnet: the gate checked agent #${agentId}'s evidence, the ` +
-      'escrow took the money, the agent delivered, the escrow paid out, and the hook wrote an ' +
-      'ERC-8004 rating that now exists because a job actually settled. Every transaction above ' +
-      'is a link.',
+      `The escrow now holds ${input.budgetU} $U for agent #${agentId}, and the hook checked its ` +
+      `evidence before letting the tokens move. Only the provider (${provider}) can submit a ` +
+      'deliverable, and only then can the job be completed — the sponsor cannot fake the rest of ' +
+      'the cycle and does not try to. If nothing is delivered by expiry, anyone can refund it to ' +
+      'the client; the hook cannot block that.' +
+      (attestability.willAttest
+        ? ''
+        : ' Note: this job will not earn an ERC-8004 rating — see the skipped step above.'),
     steps,
     jobId: jobId.toString(),
     chainId: DEMO_CHAIN_ID,

@@ -20,6 +20,15 @@ import { clientFor } from '../../runtime/client.js'
 import { narrate } from '../../runtime/narrative.js'
 import type { Analysis, SkillContext, Source } from '../../runtime/types.js'
 import { YIELD_SLUG } from './manifest.js'
+import {
+  resolveMandate,
+  spreadAllocation,
+  violations,
+  type Mandate,
+  type MandateInput,
+  type ResolvedMandate,
+  type Violation,
+} from './mandate.js'
 
 /**
  * Where an asset should sit, and what it costs to get it there.
@@ -42,7 +51,15 @@ export type YieldInput = {
   chainId?: number
   asset: string
   amount: string
+  /**
+   * The constraint the allocation must satisfy. Absent means the conservative
+   * default, and the output says which default was applied — ranking on APR
+   * alone is not something this agent falls back to silently.
+   */
+  mandate?: MandateInput
+  /** @deprecated Use `mandate.minTvlUsd`. Kept so existing callers still work. */
   minTvlUsd?: number
+  /** @deprecated Use `mandate.maxIlRisk`. Kept so existing callers still work. */
   includeIlRisk?: boolean
 }
 
@@ -60,6 +77,12 @@ export type Venue = {
   depthSource: 'onchain' | 'defillama'
   stablecoin: boolean
   ilRisk: string
+  /** DeFiLlama's own flag that it does not stand behind this APY. */
+  outlier: boolean
+  exposure: string
+  /** Empty when the venue passed every mandate rule. */
+  violations: Violation[]
+  eligible: boolean
   /** Share of the market this allocation would become. */
   shareOfDepositsPct: number | null
   caveats: string[]
@@ -71,10 +94,24 @@ export type YieldDecision = {
   asset: string
   amountUsd: number | null
   amount: string
+  /** `allocate` when something eligible exists; `refuse` when nothing does. */
+  action: 'allocate' | 'refuse'
+  reason: string
+  mandate: { applied: Mandate; specified: boolean; note: string }
+  /** Best venue that satisfies the mandate. */
   best: Venue | null
+  /**
+   * Highest APR overall, mandate or not. Present so an excluded top venue is
+   * visible rather than quietly dropped — the caller can see what was passed
+   * over and why.
+   */
+  topRankedOverall: Venue | null
+  excludedTop: { venue: string; apyPct: number | null; violations: Violation[] } | null
   current: Venue | null
   allocation: Array<{ venue: string; sharePct: number; amountUsd: number | null; why: string }>
+  /** Eligible venues only. Everything considered is in `excluded`. */
   venues: Venue[]
+  excluded: Array<{ venue: string; apyPct: number | null; violations: Violation[] }>
   moveCost: {
     gas: string
     gasPriceWei: string
@@ -88,7 +125,13 @@ export type YieldDecision = {
     daysToRecoverCost: number | null
     detail: string
   }
-  risks: string[]
+  /**
+   * Never `[]`. An empty list reads as "we checked and found none", which is
+   * the most dangerous thing this agent could say; `null` plus a reason is
+   * what "we could not determine" looks like.
+   */
+  risks: string[] | null
+  risksUnknownReason: string | null
   checks: Reconciliation[]
   assertions: Assertion[]
   checksPass: boolean
@@ -172,10 +215,20 @@ export async function analyseYield(
   const amountUnits = Number(amountAtomic) / 10 ** decimals
   const amountUsd = price.usd === null ? (venusMarket ? amountUnits * venusMarket.priceUsd : null) : amountUnits * price.usd
 
-  // --- venues --------------------------------------------------------------
+  // --- the mandate ---------------------------------------------------------
+  // The older `minTvlUsd` / `includeIlRisk` flags map onto the mandate so
+  // existing callers keep working, but the mandate is what the allocator
+  // actually consults.
+  const legacy: MandateInput = {
+    ...(input.minTvlUsd === undefined ? {} : { minTvlUsd: input.minTvlUsd }),
+    ...(input.includeIlRisk === true ? { maxIlRisk: 'yes' as const } : {}),
+  }
+  const mandate: ResolvedMandate = resolveMandate({ ...legacy, ...(input.mandate ?? {}) })
+  sources.push({ kind: 'config', label: 'Mandate', detail: mandate.note })
+
   const checks: Reconciliation[] = []
   const venues: Venue[] = []
-  const minTvl = input.minTvlUsd ?? 1_000_000
+
 
   if (venusMarket) {
     const llamaVenus = llamaPools.find(
@@ -224,6 +277,10 @@ export async function analyseYield(
       depthSource: 'onchain',
       stablecoin: llamaVenus?.stablecoin ?? false,
       ilRisk: 'no',
+      outlier: llamaVenus?.outlier === true,
+      exposure: llamaVenus?.exposure ?? 'single',
+      violations: [],
+      eligible: true,
       shareOfDepositsPct:
         amountUsd === null || venusMarket.totalSuppliedUsd <= 0
           ? null
@@ -240,10 +297,10 @@ export async function analyseYield(
 
   for (const pool of llamaPools) {
     if (pool.project.toLowerCase().includes('venus')) continue
-    if (pool.tvlUsd < minTvl) continue
-    if (pool.apy === null) continue
     const kind = classify(pool.project)
-    if (kind !== 'lending' && input.includeIlRisk !== true && pool.ilRisk === 'yes') continue
+    // Nothing is dropped here any more. Every candidate is built, then judged
+    // against the mandate, so an excluded venue can be reported with the rule
+    // that excluded it rather than vanishing from the comparison.
 
     const caveats: string[] = []
     if (pool.ilRisk === 'yes') {
@@ -280,6 +337,10 @@ export async function analyseYield(
       depthSource: 'defillama',
       stablecoin: pool.stablecoin,
       ilRisk: pool.ilRisk,
+      outlier: pool.outlier === true,
+      exposure: pool.exposure,
+      violations: [],
+      eligible: true,
       shareOfDepositsPct:
         amountUsd === null || pool.tvlUsd <= 0 ? null : (amountUsd / pool.tvlUsd) * 100,
       caveats,
@@ -290,22 +351,61 @@ export async function analyseYield(
 
   venues.sort((a, b) => (b.apyPct ?? -1) - (a.apyPct ?? -1))
 
+  // --- judge every candidate against the mandate ---------------------------
+  for (const venue of venues) {
+    venue.violations = violations(
+      {
+        name: venue.name,
+        ilRisk: venue.ilRisk,
+        stablecoin: venue.stablecoin,
+        outlier: venue.outlier,
+        depthUsd: venue.depositsUsd ?? venue.availableLiquidityUsd,
+        onchainVerifiable: venue.onchain !== null,
+        apyPct: venue.apyPct,
+      },
+      mandate.applied,
+    )
+    venue.eligible = venue.violations.length === 0
+  }
+
+  const topRankedOverall = venues[0] ?? null
+  const eligible = venues.filter((venue) => venue.eligible)
+  const excluded = venues
+    .filter((venue) => !venue.eligible)
+    .map((venue) => ({ venue: venue.name, apyPct: venue.apyPct, violations: venue.violations }))
+
+  // The venue an APR sort would have chosen, when the mandate forbids it.
+  // Reported prominently: silently substituting second place is how a caller
+  // ends up believing the top of the list was safe.
+  const excludedTop =
+    topRankedOverall !== null && !topRankedOverall.eligible
+      ? {
+          venue: topRankedOverall.name,
+          apyPct: topRankedOverall.apyPct,
+          violations: topRankedOverall.violations,
+        }
+      : null
+
   const assertions: Assertion[] = [
     assertion(
-      'At least one venue was found',
-      venues.length > 0,
-      `${venues.length} venue(s) hold ${asset} on BNB Chain above the $${minTvl} depth floor.`,
+      'At least one venue satisfies the mandate',
+      eligible.length > 0,
+      `${eligible.length} of ${venues.length} venue(s) holding ${asset} satisfy the mandate.`,
     ),
     assertion(
       'Every quoted APY is plausible',
       venues.every((venue) => venue.apyPct === null || (venue.apyPct >= 0 && venue.apyPct < 1_000)),
       'An APY below zero or above 1000% is a data error, not an opportunity.',
     ),
+    assertion(
+      'Nothing ineligible reached the allocation',
+      eligible.every((venue) => venue.violations.length === 0),
+      'A venue in the allocation with an unmet mandate rule would make the mandate decorative.',
+    ),
   ]
 
-  const best = venues[0] ?? null
-  const current =
-    venues.find((venue) => venue.project === 'venus-core-pool') ?? null
+  const best = eligible[0] ?? null
+  const current = venues.find((venue) => venue.project === 'venus-core-pool') ?? null
 
   // --- move cost -----------------------------------------------------------
   const gasPrice = await client.getGasPrice().catch(() => 1_000_000_000n)
@@ -333,39 +433,111 @@ export async function analyseYield(
     )
   }
 
-  const risks: string[] = []
-  if (best) risks.push(...best.caveats)
-  if (best && best.shareOfDepositsPct != null && best.shareOfDepositsPct > 5) {
-    risks.push(
-      `This allocation would be ${best.shareOfDepositsPct.toFixed(1)}% of the venue. Entering and ` +
-        'leaving at that size moves the rate you are entering for.',
+  // --- risks: never an empty list -----------------------------------------
+  // An empty array reads as "we checked and there are none". If there is no
+  // allocation to carry risk, or no data to judge it from, that is `null` with
+  // a reason — a different and far safer statement.
+  let risks: string[] | null = null
+  let risksUnknownReason: string | null = null
+
+  if (best === null) {
+    risksUnknownReason =
+      eligible.length === 0
+        ? 'No venue satisfied the mandate, so there is no allocation whose risks could be ' +
+          'enumerated. The rule that excluded each candidate is listed under `excluded`.'
+        : 'No venue was selected, so there is nothing to enumerate risks for.'
+  } else {
+    const found: string[] = [...best.caveats]
+
+    if (best.shareOfDepositsPct != null && best.shareOfDepositsPct > 5) {
+      found.push(
+        `This allocation would be ${best.shareOfDepositsPct.toFixed(1)}% of the venue. Entering ` +
+          'and leaving at that size moves the rate you are entering for.',
+      )
+    }
+    if (price.usd === null) found.push(price.detail)
+    if (excludedTop !== null) {
+      found.push(
+        `${excludedTop.venue} quotes a higher ${excludedTop.apyPct?.toFixed(2) ?? '-'}% but was ` +
+          `excluded: ${excludedTop.violations.map((entry) => entry.detail).join(' ')} The ` +
+          'allocation below is the best venue that satisfies the mandate, not the best rate ' +
+          'available.',
+      )
+    }
+
+    // Provenance always applies, so the list is never empty by construction.
+    found.push(
+      best.depthSource === 'onchain'
+        ? `Depth for ${best.name} is read on-chain, and its APR comes from the market's own ` +
+          'per-block rate cross-checked against DeFiLlama.'
+        : `Depth and APR for ${best.name} come from DeFiLlama alone — this agent cannot read ` +
+          'that venue on-chain, so there is no second source for either number.',
+    )
+    if (!mandate.specified) {
+      found.push(
+        'No mandate was supplied, so the conservative default was applied. A different ' +
+          'constraint would very likely produce a different allocation.',
+      )
+    }
+
+    risks = found
+  }
+
+  // --- the allocation, spread to the mandate's concentration limit ---------
+  const spread = spreadAllocation(eligible, mandate.applied.maxSingleVenuePct)
+  const allocation =
+    best === null
+      ? []
+      : spread.splits.map((split) => {
+          const venue = eligible.find((entry) => entry.name === split.venue)!
+          return {
+            venue: split.venue,
+            sharePct: split.sharePct,
+            amountUsd: amountUsd === null ? null : (amountUsd * split.sharePct) / 100,
+            why:
+              `${venue.apyPct?.toFixed(2) ?? '-'}% APY, satisfies every mandate rule, and ` +
+              `${split.sharePct}% respects the ${mandate.applied.maxSingleVenuePct}% ` +
+              'single-venue limit.',
+          }
+        })
+
+  if (spread.unplacedPct > 0 && best !== null) {
+    warnings.push(
+      `${spread.unplacedPct}% of the allocation has nowhere to go: only ${eligible.length} ` +
+        'venue(s) satisfy the mandate and none may hold more than ' +
+        `${mandate.applied.maxSingleVenuePct}%. Widen the mandate or leave the remainder where ` +
+        'it is — it is not being quietly concentrated.',
     )
   }
-  if (price.usd === null) {
-    risks.push(price.detail)
-  }
+
+  const action: 'allocate' | 'refuse' = best === null ? 'refuse' : 'allocate'
+  const reason =
+    best === null
+      ? `No venue holding ${asset} satisfies the mandate. ${venues.length} were considered and ` +
+        `all ${excluded.length} were excluded, each with the rule that excluded it. Refusing to ` +
+        'allocate is the answer here; the alternative is recommending something the mandate ' +
+        'forbids.'
+      : `${best.name} at ${best.apyPct?.toFixed(2) ?? '-'}% is the highest-yielding venue that ` +
+        'satisfies the mandate' +
+        (excludedTop === null
+          ? ', and the highest-yielding overall.'
+          : `. ${excludedTop.venue} yields more at ${excludedTop.apyPct?.toFixed(2) ?? '-'}% but ` +
+            'breaks the mandate, so it was excluded rather than recommended with a caveat.')
 
   const decision: YieldDecision = {
     asset,
     amount: input.amount,
     amountUsd,
+    action,
+    reason,
+    mandate: { applied: mandate.applied, specified: mandate.specified, note: mandate.note },
     best,
+    topRankedOverall,
+    excludedTop,
     current,
-    allocation:
-      best === null
-        ? []
-        : [
-            {
-              venue: best.name,
-              sharePct: 100,
-              amountUsd,
-              why:
-                `Highest APR of the ${venues.length} venue(s) that clear the depth floor: ` +
-                `${best.apyPct?.toFixed(2) ?? '—'}%` +
-                (apyDelta !== null ? `, ${apyDelta.toFixed(2)} points above where it sits now.` : '.'),
-            },
-          ],
-    venues,
+    allocation,
+    venues: eligible,
+    excluded,
     moveCost: {
       gas: gasTotal.toString(),
       gasPriceWei: gasPrice.toString(),
@@ -390,20 +562,32 @@ export async function analyseYield(
               'if the rate holds, which is the assumption to be sceptical of.',
     },
     risks,
+    risksUnknownReason,
     checks,
     assertions,
     checksPass,
   }
 
   const lines = [
-    `${asset} on BNB Chain: ${venues.length} venue(s) compared.`,
-    best === null
-      ? 'No venue cleared the filters, so there is nothing to recommend.'
-      : `Best: ${best.name} at ${best.apyPct?.toFixed(2) ?? '—'}% APY, ` +
-        `${best.depositsUsd === null ? 'depth unknown' : `$${(best.depositsUsd / 1e6).toFixed(1)}M deposited`}` +
-        `${best.availableLiquidityUsd === null ? '' : `, $${(best.availableLiquidityUsd / 1e6).toFixed(1)}M withdrawable right now`}.`,
-    decision.breakEven.detail,
-    ...risks.map((risk) => `Risk: ${risk}`),
+    `${asset} on BNB Chain: ${venues.length} venue(s) considered, ${eligible.length} satisfy the mandate.`,
+    mandate.note,
+    reason,
+    ...(best === null
+      ? []
+      : [
+          `Allocation: ${allocation.map((entry) => `${entry.sharePct}% ${entry.venue}`).join(', ')}.`,
+          `${best.depositsUsd === null ? 'Depth unknown' : `$${(best.depositsUsd / 1e6).toFixed(1)}M deposited`}` +
+            `${best.availableLiquidityUsd === null ? '' : `, $${(best.availableLiquidityUsd / 1e6).toFixed(1)}M withdrawable right now`}.`,
+          decision.breakEven.detail,
+        ]),
+    ...excluded.map(
+      (entry) =>
+        `Excluded ${entry.venue} (${entry.apyPct?.toFixed(2) ?? '-'}%): ` +
+        entry.violations.map((violation) => violation.rule).join(', '),
+    ),
+    ...(risks === null
+      ? [`Risks: not determined - ${risksUnknownReason}`]
+      : risks.map((risk) => `Risk: ${risk}`)),
   ]
 
   return {

@@ -5,6 +5,7 @@ import { analyseSecurity } from '../src/agents/security/analyse.js'
 import { detectProxy, analysisTarget, PROXY_SLOTS } from '../src/chain/proxy.js'
 import { PRIVILEGE_SIGNATURES, scanPrivileges } from '../src/chain/privileges.js'
 import { erc7201Base } from '../src/chain/honeypot.js'
+import { checkSourcify } from '../src/chain/sourcify.js'
 import {
   PANCAKE_V2_FACTORY,
   WBNB,
@@ -326,13 +327,16 @@ describe('the verdict', () => {
     expect(result.decision.assertions.every((check) => check.holds)).toBe(true)
   })
 
-  it('reports source verification as unknown rather than guessing', async () => {
+  it('reports source verification as unknown when Sourcify cannot be reached', async () => {
+    // The fixture context has no fetch, so this exercises the unreachable
+    // path — which must read as unknown, never as unverified.
     const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW })
     const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
     if ('error' in result) throw new Error(result.detail)
     const source = result.decision.findings.find((finding) => finding.id === 'source-verification')!
     expect(source.status).toBe('unknown')
-    expect(source.detail).toContain('Free API access is not supported for this chain')
+    expect(source.detail).toContain('An unreachable check is not a failed check')
+    expect(result.decision.unknowns).toContain('verified source')
   })
 
   it('refuses to analyse an address with no code', async () => {
@@ -341,5 +345,150 @@ describe('the verdict', () => {
     expect('error' in result).toBe(true)
     if (!('error' in result)) throw new Error('unreachable')
     expect(result.error).toBe('not-a-contract')
+  })
+})
+
+describe('source verification via Sourcify', () => {
+  const sourcifyReturning = (payload: unknown, status = 200): typeof fetch =>
+    (async () =>
+      new Response(JSON.stringify(payload), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch
+
+  it('reports an exact match as verified', async () => {
+    const result = await checkSourcify({
+      address: IMPL,
+      chainId: 56,
+      fetchImpl: sourcifyReturning({
+        match: 'exact_match',
+        creationMatch: 'exact_match',
+        runtimeMatch: 'exact_match',
+        verifiedAt: '2026-06-03T00:24:59Z',
+      }),
+    })
+    expect(result.checked).toBe(true)
+    expect(result.match).toBe('exact_match')
+    expect(result.detail).toContain('the source that is running')
+  })
+
+  it('distinguishes a partial match, where the metadata does not agree', async () => {
+    const result = await checkSourcify({
+      address: IMPL,
+      chainId: 56,
+      fetchImpl: sourcifyReturning({ match: 'match', runtimeMatch: 'match', creationMatch: null }),
+    })
+    expect(result.match).toBe('match')
+    expect(result.detail).toContain('may differ from what you read')
+  })
+
+  it('calls an absent record unknown rather than unverified', async () => {
+    const result = await checkSourcify({
+      address: IMPL,
+      chainId: 56,
+      fetchImpl: sourcifyReturning({ match: null, creationMatch: null, runtimeMatch: null }),
+    })
+    expect(result.checked).toBe(true)
+    expect(result.match).toBeNull()
+    expect(result.detail).toContain('unknown rather than unverified')
+  })
+
+  it('treats an unreachable Sourcify as unknown, never as a failure', async () => {
+    const result = await checkSourcify({
+      address: IMPL,
+      chainId: 56,
+      fetchImpl: (async () => {
+        throw new Error('network down')
+      }) as unknown as typeof fetch,
+    })
+    expect(result.checked).toBe(false)
+    expect(result.detail).toContain('An unreachable check is not a failed check')
+  })
+
+  it('checks the implementation, not the proxy stub', async () => {
+    // The stub is never verified; the implementation is. A scanner that asked
+    // about the address the user typed would report neither.
+    const seen: string[] = []
+    const ctx = testContext({
+      client: fakeClient(tokenChain({ proxy: true })),
+      now: NOW,
+      fetchImpl: (async (url: string) => {
+        seen.push(String(url))
+        return new Response(
+          JSON.stringify({ match: 'exact_match', creationMatch: 'exact_match', runtimeMatch: 'exact_match' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as typeof fetch,
+    })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(seen.some((url) => url.toLowerCase().includes(IMPL.toLowerCase()))).toBe(true)
+    expect(seen.some((url) => url.toLowerCase().includes(TOKEN.toLowerCase()))).toBe(false)
+
+    const finding = result.decision.findings.find((entry) => entry.id === 'source-verification')!
+    expect(finding.status).toBe('pass')
+    expect(finding.detail).toContain('implementation behind the proxy')
+    expect(result.decision.sourcify!.match).toBe('exact_match')
+  })
+
+  it('no longer claims BNB Chain has no keyless verification', async () => {
+    const ctx = testContext({
+      client: fakeClient(tokenChain()),
+      now: NOW,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ match: null }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as unknown as typeof fetch,
+    })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    const finding = result.decision.findings.find((entry) => entry.id === 'source-verification')!
+    // The old copy asserted a keyless check was impossible. It was not.
+    expect(finding.detail).not.toContain('no keyless way')
+    expect(JSON.stringify(result.sources)).toContain('Sourcify')
+  })
+})
+
+describe('proxy resolution is load-bearing — do not regress it', () => {
+  /**
+   * An independent comparison predicted a fast agent would call a commercial
+   * scanner and inherit its `is_proxy: 0` on a live EIP-1167 token. This agent
+   * does not: it reads the bytecode itself and resolves the stub before any
+   * check runs. These pin that behaviour.
+   */
+  it('resolves the stub before any check reads bytecode', async () => {
+    const ctx = testContext({
+      client: fakeClient(tokenChain({ proxy: true, privileges: ['mint(address,uint256)', 'pause()'] })),
+      now: NOW,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ match: null }), { status: 200 })) as unknown as typeof fetch,
+    })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(result.decision.proxy.isProxy).toBe(true)
+    expect(result.decision.proxy.proxyCodeSize).toBe(45)
+    expect(result.decision.proxy.implementationCodeSize).toBeGreaterThan(19_000)
+    expect(result.decision.analysedContract.toLowerCase()).toBe(IMPL.toLowerCase())
+    expect(result.decision.privileges.scanned.toLowerCase()).toBe(IMPL.toLowerCase())
+    expect(result.decision.privileges.found.map((entry) => entry.signature)).toContain(
+      'mint(address,uint256)',
+    )
+  })
+
+  it('names the third-party failure mode it is avoiding, in its own sources', async () => {
+    const ctx = testContext({
+      client: fakeClient(tokenChain({ proxy: true })),
+      now: NOW,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ match: null }), { status: 200 })) as unknown as typeof fetch,
+    })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    const proxySource = result.sources.find((entry) => entry.label === 'Proxy detection')!
+    expect(proxySource.detail).toContain('is_proxy=0')
+    expect(proxySource.detail).toContain('No third-party proxy flag is trusted')
   })
 })

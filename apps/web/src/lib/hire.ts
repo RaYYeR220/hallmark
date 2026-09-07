@@ -8,10 +8,12 @@ import {
 } from '@hallmark/altana'
 import { encodeAbiParameters, formatUnits, parseUnits } from 'viem'
 
+import { identityRegistryAbi } from '@hallmark/core'
+
 import { hallmarkCommerceAbi, hallmarkHookAbi } from './abi'
 import { multicallAddressFor, publicClientFor } from './chain'
 import { CATEGORY_DEFINITIONS, type CategoryDefinition, type HallmarkCategory } from './categories'
-import { getDeployment, type SupportedChainId } from './deployments'
+import { getDeployment, registries, type SupportedChainId } from './deployments'
 
 /**
  * Everything the hire flow needs to decide, priced and scoped, before anyone
@@ -25,6 +27,8 @@ import { getDeployment, type SupportedChainId } from './deployments'
 
 /** $U has 18 decimals, like everything else on BNB Chain. */
 export const U_DECIMALS = 18
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 /** Default budget for a demo hire: small enough to be unremarkable. */
 export const DEFAULT_BUDGET_U = '2'
@@ -44,6 +48,16 @@ export type HirePreflight = {
   /** Gate parameters, read from the contract rather than assumed. */
   maxEvidenceAge: number
   minValidationScore: number
+  /**
+   * Who the job must pay. The hook reverts with `AgentProviderMismatch`
+   * unless the job's provider is exactly this address — the agent's
+   * registered wallet, or its owner when it has declared none. Without that
+   * binding you could write reputation for an agent you never paid.
+   */
+  payee: `0x${string}` | null
+  owner: `0x${string}` | null
+  /** Atomic $U. Below this a settled job pays out but earns no attestation. */
+  minAttestableBudget: bigint
   /** Why the gate would refuse, phrased for a person. Null when it would not. */
   refusal: {
     error: 'NoFreshEvidence' | 'UnknownAgent' | 'NotDeployed'
@@ -83,6 +97,9 @@ export async function preflightHire(
       score: null,
       maxEvidenceAge: 86_400,
       minValidationScore: 50,
+      payee: null,
+      owner: null,
+      minAttestableBudget: 10n ** 17n,
       refusal: {
         error: 'NotDeployed',
         headline: 'Hallmark’s escrow is not deployed on this chain.',
@@ -113,6 +130,19 @@ export async function preflightHire(
       { address: deployment.hook, abi: hallmarkHookAbi, functionName: 'minValidationScore' },
       { address: deployment.commerce, abi: hallmarkCommerceAbi, functionName: 'feeBps' },
       { address: deployment.commerce, abi: hallmarkCommerceAbi, functionName: 'paymentToken' },
+      { address: deployment.hook, abi: hallmarkHookAbi, functionName: 'minAttestableBudget' },
+      {
+        address: registries(chainId).identityRegistry,
+        abi: identityRegistryAbi,
+        functionName: 'getAgentWallet',
+        args: [BigInt(agentId)],
+      },
+      {
+        address: registries(chainId).identityRegistry,
+        abi: identityRegistryAbi,
+        functionName: 'ownerOf',
+        args: [BigInt(agentId)],
+      },
     ] as never,
     allowFailure: true,
     multicallAddress: multicallAddressFor(chainId),
@@ -123,6 +153,9 @@ export async function preflightHire(
   const scoreEntry = results[2]
   const feeEntry = results[3]
   const tokenEntry = results[4]
+  const minBudgetEntry = results[5]
+  const walletEntry = results[6]
+  const ownerEntry = results[7]
 
   const maxEvidenceAge =
     ageEntry !== undefined && ageEntry.status === 'success' ? Number(ageEntry.result) : 86_400
@@ -137,10 +170,30 @@ export async function preflightHire(
       ? (tokenEntry.result as `0x${string}`)
       : deployment.paymentToken
 
+  const owner =
+    ownerEntry !== undefined && ownerEntry.status === 'success'
+      ? (ownerEntry.result as `0x${string}`)
+      : null
+  // The registry's own fallback: an agent that declares no wallet is paid at
+  // its owner address. Mirrored here so the provider we set matches what the
+  // hook will compute.
+  const declaredWallet =
+    walletEntry !== undefined && walletEntry.status === 'success'
+      ? (walletEntry.result as `0x${string}`)
+      : null
+  const payee =
+    declaredWallet !== null && declaredWallet !== ZERO_ADDRESS ? declaredWallet : owner
+
   const base = {
     chainId,
     agentId,
     escrowDeployed: true,
+    payee,
+    owner,
+    minAttestableBudget:
+      minBudgetEntry !== undefined && minBudgetEntry.status === 'success'
+        ? (minBudgetEntry.result as bigint)
+        : 10n ** 17n,
     maxEvidenceAge,
     minValidationScore,
     feeBps,
@@ -204,6 +257,66 @@ export async function preflightHire(
       revert: `NoFreshEvidence(${agentId}, ${lastEvidenceAt})`,
     },
   }
+}
+
+/**
+ * Will this job's outcome earn an ERC-8004 rating?
+ *
+ * A direct mirror of `HallmarkHook._classify`, evaluated before anyone
+ * signs. The hook freezes this verdict at funding time and a job that comes
+ * back `SelfDealt` or `BudgetTooSmall` still settles and still pays out — it
+ * just writes nothing to the registry. That is the quietest possible
+ * failure: money moves, the demo looks like it worked, and the one artifact
+ * the whole product exists to produce never appears.
+ *
+ * So it is computed up front and rendered as a warning, not discovered
+ * afterwards by noticing an absence.
+ */
+export type Attestability =
+  | { willAttest: true }
+  | { willAttest: false; reason: 'self-dealt' | 'budget-too-small'; detail: string }
+
+export function classifyAttestability(args: {
+  client: `0x${string}`
+  evaluator: `0x${string}`
+  payee: `0x${string}` | null
+  owner: `0x${string}` | null
+  budgetAtomic: bigint
+  minAttestableBudget: bigint
+}): Attestability {
+  const same = (a: string | null, b: string | null) =>
+    a !== null && b !== null && a.toLowerCase() === b.toLowerCase()
+
+  if (same(args.client, args.payee) || same(args.client, args.owner)) {
+    return {
+      willAttest: false,
+      reason: 'self-dealt',
+      detail:
+        'The buyer is the agent’s own payee or owner, so this is not an arm’s-length ' +
+        'transaction. The escrow will settle it and pay out, but the hook writes no ' +
+        'ERC-8004 rating — you cannot build a reputation by hiring yourself.',
+    }
+  }
+  if (same(args.evaluator, args.payee)) {
+    return {
+      willAttest: false,
+      reason: 'self-dealt',
+      detail:
+        'The evaluator is the party being paid, so nobody independent decides whether the ' +
+        'work was done. The job settles; the rating is not written.',
+    }
+  }
+  if (args.budgetAtomic < args.minAttestableBudget) {
+    return {
+      willAttest: false,
+      reason: 'budget-too-small',
+      detail:
+        `Below the escrow's minimum attestable budget of ` +
+        `${formatUnits(args.minAttestableBudget, U_DECIMALS)} $U. The job settles normally, ` +
+        'but writes no rating — the floor is what forging an attestation has to cost.',
+    }
+  }
+  return { willAttest: true }
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,0 +1,179 @@
+/* --- The substrate: full-bleed colony behind every page ------------------- */
+
+.substrate {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Decorative. The information it encodes is stated in words on every
+     surface it appears behind. */
+  contain: strict;
+}
+
+.substrateSvg {
+  position: absolute;
+  left: -8%;
+  top: -8%;
+  width: 116%;
+  height: 116%;
+  transform-origin: 52% 46%;
+  /* Orbital drift: the colony never stops creeping. Slow enough that it reads
+     as growth rather than animation. */
+  animation: drift var(--dur-drift) linear infinite;
+}
+
+@keyframes drift {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(2.6deg) scale(1.035);
+  }
+  to {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+.hy {
+  fill: none;
+  stroke: var(--hypha);
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+
+.hyStrong {
+  fill: none;
+  stroke: var(--hypha-strong);
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+
+/* Travelling signal. Three colours, three speeds, all along real hyphae. */
+.pulse {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 26 620;
+  vector-effect: non-scaling-stroke;
+  animation: travel 9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+.pulseProbe {
+  stroke: var(--sig-probe);
+}
+
+.pulseJob {
+  stroke: var(--sig-job);
+  animation-duration: 11.5s;
+  animation-delay: -3s;
+}
+
+.pulseAttest {
+  stroke: var(--sig-attest);
+  animation-duration: 7.5s;
+  animation-delay: -5s;
+}
+
+@keyframes travel {
+  from {
+    stroke-dashoffset: 646;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .substrateSvg {
+    animation: none;
+  }
+
+  .pulse {
+    animation: none;
+    stroke-dasharray: none;
+    opacity: 0.45;
+  }
+}
+
+/* --- A single agent's colony ---------------------------------------------- */
+
+.colony {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+
+.colonySmall {
+  height: 62px;
+}
+
+.colonyLarge {
+  height: 150px;
+}
+
+/* An agent nobody has ever observed. Grey, short, and visibly stunted beside
+   a probed one — the same fact the badge states in words. */
+.barren {
+  opacity: 0.55;
+}
+
+.fruitProbe {
+  fill: var(--sig-probe);
+}
+
+.fruitJob {
+  fill: var(--sig-job);
+}
+
+.fruitAttest {
+  fill: var(--sig-attest);
+}
+
+.fruitDormant {
+  fill: var(--hypha-strong);
+  opacity: 0.38;
+}
+
+/* --- The legend ------------------------------------------------------------
+   The colour mapping is semantic, so it is stated once wherever colonies first
+   appear rather than left to be inferred. */
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  list-style: none;
+  margin: 0;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+.legendSwatch {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--blob-3);
+  flex: none;
+}
+
+.legendProbe {
+  background: var(--sig-probe);
+}
+
+.legendJob {
+  background: var(--sig-job);
+}
+
+.legendAttest {
+  background: var(--sig-attest);
+}

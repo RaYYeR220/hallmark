@@ -1,129 +1,334 @@
-/* --- Hero ---------------------------------------------------------------- */
+/* --- Hero: one claim, one CTA, real air ----------------------------------- */
 
 .hero {
-  /* Real air above the fold: the claim is the only thing competing for
-     attention until the reader scrolls. */
-  min-height: min(84svh, 46rem);
+  position: relative;
+  z-index: 1;
+  min-height: min(86svh, 48rem);
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
+  text-align: center;
+  gap: var(--sp-5);
   max-width: var(--width-page);
   margin: 0 auto;
-  padding: var(--sp-9) var(--sp-5) var(--sp-7);
-}
-
-.heroEyebrow {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-  font-size: var(--fs-xs);
-  letter-spacing: var(--tracking-wide);
-  color: var(--text-muted);
-  margin-bottom: var(--sp-5);
+  padding: var(--sp-8) var(--sp-5) var(--sp-7);
+  /* A clearing in the colony: the substrate is dense everywhere except behind
+     the one claim, so the type has ground without a solid panel over the art. */
+  background: radial-gradient(64% 60% at 50% 48%, var(--scrim) 0%, transparent 76%);
 }
 
 .heroClaim {
-  font-size: clamp(2.25rem, 6.2vw, var(--fs-4xl));
-  line-height: 1.04;
-  letter-spacing: -0.03em;
-  font-weight: var(--fw-semibold);
-  max-width: 18ch;
+  margin: 0;
+  max-width: 17ch;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: clamp(2.625rem, 7.4vw, var(--fs-4xl));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  text-transform: uppercase;
+  text-wrap: balance;
 }
 
+/* The second half of the claim is the part that is a probe result. */
 .heroAccent {
-  color: var(--text-accent);
+  color: var(--sig-probe);
 }
 
 .heroLead {
-  margin-top: var(--sp-5);
+  margin: 0;
+  max-width: 58ch;
   font-size: var(--fs-md);
   line-height: var(--lh-normal);
   color: var(--text-secondary);
-  max-width: 52ch;
 }
 
 .heroActions {
-  margin-top: var(--sp-6);
+  margin-top: var(--sp-3);
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
+  gap: var(--sp-5);
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 .heroSecondary {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  text-decoration-color: var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration-color: var(--hypha);
 }
 
 .heroSecondary:hover {
   color: var(--text);
 }
 
-/* The proof strip. A claim, not a table: four numbers on one line. */
+/* The proof strip: a claim, not a table. One line of live counts. */
 .proofStrip {
-  margin-top: var(--sp-8);
-  padding-top: var(--sp-5);
-  border-top: 1px solid var(--border);
+  margin-top: var(--sp-5);
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-6);
-  align-items: flex-start;
+  gap: var(--sp-3) var(--sp-4);
+  align-items: baseline;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  max-width: 58rem;
+  /* The colony is dense here and mono text is thin. A clearing of its own,
+     shaped like everything else, so the numbers stay legible over the art. */
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--blob-1);
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
 }
 
 .proofItem {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 6rem;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  white-space: nowrap;
 }
 
 .proofValue {
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tracking-tight);
-  line-height: var(--lh-tight);
 }
 
-.proofLabel {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
+.proofValueProbe {
+  color: var(--sig-probe);
+}
+
+.proofValueAttest {
+  color: var(--sig-attest);
 }
 
 .proofNote {
   flex-basis: 100%;
-  font-size: var(--fs-2xs);
-  color: var(--text-faint);
+  max-width: 68ch;
+  margin: var(--sp-3) auto 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  line-height: 1.65;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 @media (max-width: 48rem) {
   .hero {
     min-height: auto;
-    padding: var(--sp-8) var(--sp-4) var(--sp-6);
+    padding: var(--sp-7) var(--sp-4) var(--sp-6);
+    gap: var(--sp-4);
+  }
+
+  .heroClaim {
+    font-size: clamp(2.375rem, 11.5vw, 4rem);
+    max-width: none;
   }
 
   .proofStrip {
-    gap: var(--sp-4) var(--sp-5);
+    gap: var(--sp-2) var(--sp-4);
+    justify-content: flex-start;
+    text-align: left;
   }
 }
 
-/* --- Sections ------------------------------------------------------------ */
+/* --- The register: filmstrip of live colonies ----------------------------- */
+
+.register {
+  position: relative;
+  z-index: 1;
+  padding-bottom: var(--sp-7);
+}
+
+.registerHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  max-width: var(--width-wide);
+  margin: 0 auto;
+  padding: 0 var(--sp-6) var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.strip {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--sp-2) var(--sp-6) var(--sp-4);
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  max-width: var(--width-wide);
+  margin: 0 auto;
+  list-style: none;
+}
+
+.strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* The list items stretch so every card is the same height regardless of how
+   its name wraps; the name is pushed down by `margin-top: auto` on the colony
+   so the stats rows align across the strip. */
+.strip > li {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.colonyCard {
+  flex: 0 0 15rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--blob-1);
+  padding: var(--sp-4);
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform var(--dur-base) var(--ease),
+    border-color var(--dur-fast) linear;
+}
+
+.colonyCard:hover {
+  transform: translateY(-4px);
+  border-color: var(--sig-probe);
+}
+
+/* An agent with fresh evidence is already fruiting — marked before you hover. */
+.colonyCardLive {
+  border-color: color-mix(in srgb, var(--sig-probe) 45%, var(--border));
+}
+
+.colonyName {
+  display: block;
+  margin-top: auto;
+  font-family: var(--font-display);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-md);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-top: var(--sp-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colonyCat {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: var(--sp-1);
+}
+
+.colonyStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+
+.colonyStat {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.colonyStat span {
+  display: block;
+  font-size: 0.5rem;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.statProbe {
+  color: var(--sig-probe);
+}
+
+.statJob {
+  color: var(--sig-job);
+}
+
+.statAttest {
+  color: var(--sig-attest);
+}
+
+.statDormant {
+  color: var(--text-faint);
+}
+
+.registerFoot {
+  margin: var(--sp-2) auto 0;
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--blob-4);
+  background: var(--scrim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.7;
+  color: var(--text-muted);
+  max-inline-size: 92ch;
+  width: fit-content;
+}
+
+@media (max-width: 48rem) {
+  .registerHead,
+  .registerFoot {
+    padding-left: var(--sp-4);
+    padding-right: var(--sp-4);
+  }
+
+  .strip {
+    padding-left: var(--sp-4);
+    padding-right: var(--sp-4);
+  }
+
+  .colonyCard {
+    flex-basis: 13rem;
+  }
+}
+
+/* --- Sections below the fold ---------------------------------------------- */
 
 .band {
+  position: relative;
+  z-index: 1;
   border-top: 1px solid var(--border);
   padding: var(--sp-8) 0;
 }
 
 .bandSunken {
-  background: var(--surface-sunken);
+  background: var(--scrim);
+  backdrop-filter: blur(10px);
 }
 
 .bandInner {
   max-width: var(--width-page);
   margin: 0 auto;
-  padding: 0 var(--sp-5);
+  padding: 0 var(--sp-6);
 }
 
 @media (max-width: 48rem) {
@@ -138,7 +343,7 @@
 
 .bandTitle {
   font-size: var(--fs-2xl);
-  max-width: 20ch;
+  max-width: 22ch;
   margin-bottom: var(--sp-4);
 }
 
@@ -148,24 +353,29 @@
   font-size: var(--fs-md);
 }
 
-/* --- The problem --------------------------------------------------------- */
+/* --- The problem ----------------------------------------------------------- */
 
 .quote {
   margin: var(--sp-5) 0 0;
   padding-left: var(--sp-5);
-  border-left: 3px solid var(--border-accent);
+  border-left: 3px solid var(--sig-probe);
   max-width: var(--measure);
 }
 
 .quoteText {
+  font-family: var(--font-display);
   font-size: var(--fs-lg);
-  line-height: var(--lh-snug);
+  line-height: 1.25;
+  text-transform: uppercase;
   letter-spacing: var(--tracking-tight);
 }
 
 .quoteAttribution {
   margin-top: var(--sp-3);
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -178,13 +388,16 @@
 
 .problemItem {
   padding-top: var(--sp-3);
-  border-top: 1px solid var(--border-strong);
+  border-top: 1px solid var(--hypha);
 }
 
 .problemTitle {
+  font-family: var(--font-display);
   font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  margin-bottom: var(--sp-2);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+  margin-bottom: var(--sp-3);
 }
 
 .problemBody {
@@ -192,14 +405,14 @@
   color: var(--text-secondary);
 }
 
-/* --- How it works -------------------------------------------------------- */
+/* --- How it works ---------------------------------------------------------- */
 
 .steps {
   margin-top: var(--sp-6);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: var(--sp-5);
-  counter-reset: step;
+  gap: var(--sp-4);
+  list-style: none;
 }
 
 .step {
@@ -207,30 +420,32 @@
   padding: var(--sp-5);
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  counter-increment: step;
+  border-radius: var(--blob-2);
 }
 
 .stepNumber {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: var(--radius-sm);
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: var(--blob-3);
   background: var(--surface-accent-soft);
   color: var(--text-accent);
-  border: 1px solid var(--border-accent);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
+  border: 1px solid var(--sig-probe);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
   margin-bottom: var(--sp-3);
 }
 
 .stepTitle {
+  font-family: var(--font-display);
   font-size: var(--fs-base);
-  font-weight: var(--fw-semibold);
-  margin-bottom: var(--sp-2);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+  margin-bottom: var(--sp-3);
 }
 
 .stepBody {
@@ -246,7 +461,7 @@
   border: 1px solid var(--border);
 }
 
-/* --- Categories ---------------------------------------------------------- */
+/* --- Categories ------------------------------------------------------------ */
 
 .categories {
   margin-top: var(--sp-6);
@@ -261,24 +476,24 @@
   gap: var(--sp-3);
   padding: var(--sp-5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--blob-1);
   background: var(--surface-raised);
   text-decoration: none;
   transition:
-    border-color var(--dur-base) var(--ease),
-    transform var(--dur-base) var(--ease),
-    box-shadow var(--dur-base) var(--ease);
+    border-color var(--dur-fast) linear,
+    transform var(--dur-base) var(--ease);
 }
 
 .category:hover {
-  border-color: var(--border-accent);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  border-color: var(--sig-probe);
+  transform: translateY(-3px);
 }
 
 .categoryName {
+  font-family: var(--font-display);
   font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
   letter-spacing: var(--tracking-tight);
 }
 
@@ -297,16 +512,18 @@
 
 .categoryScope strong {
   color: var(--text);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-semibold);
 }
 
 .categoryCta {
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   color: var(--text-accent);
-  font-weight: var(--fw-medium);
 }
 
-/* --- The refusal --------------------------------------------------------- */
+/* --- The refusal ----------------------------------------------------------- */
 
 .refusalLayout {
   display: grid;
@@ -332,29 +549,33 @@
 }
 
 .revert {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--sub-700);
+  border-radius: var(--blob-1);
   overflow: hidden;
   background: var(--surface-raised);
 }
 
+/* The refused half carries no signal colour — nothing grew, so nothing is
+   lit. Ink and substrate only. */
 .revertHeader {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--border);
-  background: var(--surface-bad-soft);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semibold);
-  color: var(--text-bad);
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
 }
 
 .revertBody {
-  padding: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-loose);
+  font-size: var(--fs-2xs);
+  line-height: 1.9;
   color: var(--text-secondary);
   overflow-x: auto;
 }
@@ -364,14 +585,15 @@
 }
 
 .revertHighlight {
-  color: var(--text-bad);
-  font-weight: var(--fw-semibold);
+  color: var(--text);
+  font-weight: var(--fw-bold);
 }
 
 .revertFooter {
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
   border-top: 1px solid var(--border);
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
   color: var(--text-muted);
   display: flex;
   flex-wrap: wrap;
@@ -379,7 +601,7 @@
   align-items: baseline;
 }
 
-/* --- Closing CTA --------------------------------------------------------- */
+/* --- Closing --------------------------------------------------------------- */
 
 .closing {
   text-align: left;
@@ -403,10 +625,17 @@
   flex-wrap: wrap;
 }
 
-/* --- Skeletons ----------------------------------------------------------- */
+.closingFoot {
+  margin-top: var(--sp-5);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* --- Skeletons ------------------------------------------------------------- */
 
 .stripSkeleton {
   display: flex;
-  gap: var(--sp-6);
+  gap: var(--sp-3);
   flex-wrap: wrap;
+  justify-content: center;
 }

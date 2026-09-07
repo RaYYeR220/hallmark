@@ -1,9 +1,7 @@
 /*
- * Base layer: reset, document defaults and the handful of primitives that are
- * genuinely global (focus, links, tables, form controls, a small set of
- * utilities used by more than three components).
- *
- * Everything here reads from tokens.css. No literal colours or sizes.
+ * Base layer: reset, document defaults, and the few primitives that are
+ * genuinely global. Everything reads from tokens.css; no literal colours,
+ * no literal sizes.
  */
 
 *,
@@ -17,25 +15,27 @@
 }
 
 html {
-  color-scheme: light dark;
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
 }
 
 body {
-  /* Explicit, tokenised background: the page must not borrow a ground colour
-     from whatever is rendering it. */
+  /* Explicit, tokenised ground: the page must not borrow a background from
+     whatever is rendering it. */
   background-color: var(--surface);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   font-weight: var(--fw-normal);
+  /* Condensed faces need their case-sensitive forms switched on or the
+     punctuation sits at lowercase height beside all-caps labels. */
+  font-feature-settings: 'case' on;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  min-height: 100dvh;
-  /* Nothing in the document may cause a horizontal body scroll. Wide content
-     scrolls inside its own container instead — see .scroll-x below. */
+  min-height: 100svh;
+  /* The colony creeps beyond the viewport by design; nothing may turn that
+     into a horizontal scrollbar. */
   overflow-x: hidden;
 }
 
@@ -62,15 +62,25 @@ button {
   cursor: pointer;
 }
 
+/* Display type is stencil, uppercase, and set tight. It is for the one claim
+   on a page, not for running text. */
 h1,
 h2,
-h3,
+h3 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
 h4,
 h5,
 h6 {
+  font-family: var(--font-sans);
   font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-tight);
+  line-height: var(--lh-snug);
   text-wrap: balance;
 }
 
@@ -89,19 +99,21 @@ a {
   text-decoration-color: var(--border-strong);
   text-underline-offset: 0.18em;
   text-decoration-thickness: 1px;
-  transition: color var(--dur-fast) var(--ease),
-    text-decoration-color var(--dur-fast) var(--ease);
+  transition:
+    color var(--dur-fast) linear,
+    text-decoration-color var(--dur-fast) linear;
 }
 
 a:hover {
   text-decoration-color: currentColor;
 }
 
-/* One focus treatment for the whole app. Visible on every focusable element,
-   never removed, never replaced by a colour change alone. */
+/* One focus treatment, everywhere, in the indigo that is otherwise reserved
+   for attestations — the only place a signal colour does non-semantic duty,
+   because a focus ring has to be unmistakable and consistent. */
 :focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline-offset: 3px;
   border-radius: var(--radius-xs);
 }
 
@@ -128,13 +140,11 @@ table {
 }
 
 ::selection {
-  background: var(--surface-accent-soft);
-  color: var(--text);
+  background: var(--sig-probe);
+  color: #ffffff;
 }
 
-/* --- Global utilities ------------------------------------------------------
-   Kept to the few that appear across many components; anything narrower lives
-   in that component's own module. */
+/* --- Global utilities ----------------------------------------------------- */
 
 .visually-hidden {
   position: absolute;
@@ -148,7 +158,6 @@ table {
   border: 0;
 }
 
-/* Skip link: off-screen until focused, then pinned to the top-left. */
 .skip-link {
   position: absolute;
   left: var(--sp-3);
@@ -159,8 +168,10 @@ table {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: var(--sp-2) var(--sp-4);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
   box-shadow: var(--shadow-md);
 }
 
@@ -175,7 +186,10 @@ table {
   -webkit-overflow-scrolling: touch;
 }
 
-.mono {
+/* Data is monospaced with tabular figures, so a column of numbers aligns and
+   a changing value does not reflow its neighbours. */
+.mono,
+.tech {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -184,9 +198,16 @@ table {
   font-variant-numeric: tabular-nums;
 }
 
+.stencil {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+}
+
 /* --- Motion ----------------------------------------------------------------
    Every animation in the app is driven by one of the duration tokens, so
-   collapsing them here genuinely stops all of it rather than most of it. */
+   collapsing them here genuinely stops all of it. The colony stops creeping,
+   the pulses stop travelling, and the substrate becomes a still drawing —
+   which it is designed to work as. */
 
 @media (prefers-reduced-motion: reduce) {
   :root {

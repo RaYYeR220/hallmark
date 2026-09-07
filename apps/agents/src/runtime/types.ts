@@ -1,4 +1,4 @@
-import type { Address, Hex, PublicClient } from 'viem'
+import type { Address, Hex } from 'viem'
 import type { SupportedChainId } from '@hallmark/core'
 import type { AgentPolicy, ExecuteOutcome, Session } from '@hallmark/altana'
 
@@ -6,6 +6,7 @@ import type { Shape } from './schema.js'
 
 export type { Shape, FieldSpec } from './schema.js'
 import type { Store } from './store.js'
+import type { ChainClient } from '../chain/clients.js'
 
 /**
  * The shapes every agent in this service speaks.
@@ -225,7 +226,7 @@ export type SkillPrice = {
 export type SkillContext = {
   chainId: SupportedChainId
   /** Read-only chain access. Nothing here can sign. */
-  client: PublicClient
+  client: ChainClient
   fetch: typeof fetch
   store: Store
   /** Unix seconds. Injectable so tests are not wall-clock dependent. */

@@ -1,10 +1,12 @@
 import 'server-only'
 
-import { createRegistryReader } from '@hallmark/core'
+import { cache } from 'react'
+
+import { createRegistryReader, reputationRegistryAbi } from '@hallmark/core'
 
 import { erc20Abi, hallmarkCommerceAbi, hallmarkHookAbi } from './abi'
 import { multicallAddressFor, publicClientFor } from './chain'
-import { getDeployment, type SupportedChainId } from './deployments'
+import { getDeployment, registries, type SupportedChainId } from './deployments'
 import { rpcUrlFor } from './env'
 import { fetchAgentPage } from './scan'
 
@@ -58,9 +60,29 @@ export type EvidenceWrite = {
   txHash: string | null
 }
 
+/**
+ * The live cross-check on the settled half of the proof pair.
+ *
+ * The two transaction hashes are configuration — they are receipts, and a
+ * receipt does not change. What can change is whether the rating that
+ * settlement produced is still there, so that half is read from the
+ * Reputation Registry on every request. If it ever stops returning a count,
+ * the page will say so rather than keep asserting a link.
+ */
+export type SettlementReceipt = {
+  agentId: number
+  /** Entries the hook itself has written about this agent, by tag. */
+  count: number
+  value: number
+  /** True when the hook's address appears in the registry's client list. */
+  hookIsClient: boolean
+  error: string | null
+}
+
 export type ProofSnapshot = {
   chainId: SupportedChainId
   contracts: LiveContract[]
+  settlementReceipt: SettlementReceipt | null
   /** The gate's configuration, quoted from the contract. */
   gate: {
     attestor: `0x${string}`
@@ -81,7 +103,18 @@ export type ProofSnapshot = {
 
 const STATUS_NAMES = ['Open', 'Funded', 'Submitted', 'Completed', 'Rejected', 'Expired']
 
-export async function getProofSnapshot(chainId: SupportedChainId): Promise<ProofSnapshot> {
+/**
+ * Wrapped in React's `cache` so the four Suspense sections on /proof — the
+ * pair, the deployment, the jobs and the attestations — share one read per
+ * request instead of each doing the whole sweep. Without it the page issued
+ * the same dozens of chain reads four times over and took half a minute.
+ *
+ * Per-request only. Nothing is carried between requests: this page is the
+ * proof page, and a cached proof is not one.
+ */
+export const getProofSnapshot = cache(async function getProofSnapshot(
+  chainId: SupportedChainId,
+): Promise<ProofSnapshot> {
   const deployment = getDeployment(chainId)
   const failures: string[] = []
   const readAt = new Date().toISOString()
@@ -96,6 +129,7 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
       ourAgents: [],
       evidenceWrites: [],
       refusalProbe: null,
+      settlementReceipt: null,
       readAt,
       failures: [`Hallmark has no deployment on chain ${chainId}.`],
     }
@@ -282,7 +316,7 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
         min_feedbacks: 1,
         sort_by: 'total_feedbacks',
         sort_order: 'desc',
-        limit: 8,
+        limit: 5,
       }).catch(() => null)
 
       // Our own agents first, then whatever else carries on-chain ratings.
@@ -295,7 +329,11 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
         ...(rpcUrlFor(chainId) === undefined ? {} : { rpcUrl: rpcUrlFor(chainId) as string }),
       })
 
-      for (const agentId of candidates.slice(0, 6)) {
+      // In parallel. This was a sequential await loop over eight agents, each
+      // doing several chain round-trips, which made the first uncached visit to
+      // the proof page take fourteen seconds.
+      await Promise.all(
+        candidates.slice(0, 5).map(async (agentId) => {
         const [hireable, validations] = await Promise.all([
           client
             .readContract({
@@ -360,7 +398,8 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
             txHash: null,
           })
         }
-      }
+        }),
+      )
     } catch {
       failures.push('Listing Hallmark’s own agents from the index failed.')
     }
@@ -390,9 +429,52 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
     failures.push('The live refusal probe could not be read.')
   }
 
+  // --- the rating the settled job produced, read live ---------------------
+
+  const settled = deployment.proofPair.settled
+  let settlementReceipt: SettlementReceipt | null = null
+  try {
+    const [clients, summary] = await Promise.all([
+      client.readContract({
+        address: registries(chainId).reputationRegistry,
+        abi: reputationRegistryAbi,
+        functionName: 'getClients',
+        args: [BigInt(settled.agentId)],
+      }),
+      client.readContract({
+        address: registries(chainId).reputationRegistry,
+        abi: reputationRegistryAbi,
+        functionName: 'getSummary',
+        // Scoped to the hook as the only client, so this counts ratings the
+        // settlement itself wrote and nothing a human could have added.
+        args: [BigInt(settled.agentId), [deployment.hook], 'jobcompleted', ''],
+      }),
+    ])
+    const tuple = summary as readonly [bigint, bigint, number]
+    settlementReceipt = {
+      agentId: settled.agentId,
+      count: Number(tuple[0]),
+      value: Number(tuple[1]),
+      hookIsClient: (clients as readonly `0x${string}`[]).some(
+        (address) => address.toLowerCase() === deployment.hook.toLowerCase(),
+      ),
+      error: null,
+    }
+  } catch (error) {
+    settlementReceipt = {
+      agentId: settled.agentId,
+      count: 0,
+      value: 0,
+      hookIsClient: false,
+      error:
+        error instanceof Error ? error.message.split('\n')[0] ?? 'read failed' : 'read failed',
+    }
+  }
+
   return {
     chainId,
     contracts,
+    settlementReceipt,
     gate,
     jobCount,
     jobs,
@@ -402,4 +484,4 @@ export async function getProofSnapshot(chainId: SupportedChainId): Promise<Proof
     readAt,
     failures,
   }
-}
+})

@@ -182,7 +182,7 @@ describe('yield analysis', () => {
     if ('error' in included) throw new Error(included.detail)
     const lp = included.decision.venues.find((venue) => venue.project === 'pancakeswap-amm-v3')!
     expect(lp.caveats.join(' ')).toContain('impermanent-loss risk')
-    expect(included.decision.risks.join(' ')).toContain('fee income, not')
+    expect((included.decision.risks ?? []).join(' ')).toContain('fee income, not')
   })
 
   it('drops venues below the depth floor', async () => {
@@ -239,10 +239,14 @@ describe('yield analysis', () => {
       now: NOW,
       fetchImpl: FAILING_FETCH,
     })
-    const result = await analyseYield({ asset: 'USDT', amount: '5000' }, ctx, { deep: false })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '5000', mandate: { minTvlUsd: 1_000 } },
+      ctx,
+      { deep: false },
+    )
     if ('error' in result) throw new Error(result.detail)
     expect(result.decision.best!.shareOfDepositsPct).toBeCloseTo(50, 0)
-    expect(result.decision.risks.join(' ')).toContain('of the venue')
+    expect((result.decision.risks ?? []).join(' ')).toContain('of the venue')
   })
 
   it('prices the move and reports the payback period', async () => {
@@ -305,5 +309,229 @@ describe('yield act', () => {
     if (result.status !== 'aborted') throw new Error('unreachable')
     expect(result.reason).toBe('not-authorised')
     expect(result.detail).toContain('will not quietly route somewhere else')
+  })
+})
+
+describe('the mandate', () => {
+  const outlierPool = () =>
+    llamaResponse([
+      {
+        project: 'venus-core-pool',
+        symbol: 'USDT',
+        apyBase: supplyApyFromRatePerBlock(401_551_845n),
+        apy: supplyApyFromRatePerBlock(401_551_845n),
+      },
+      {
+        project: 'uniswap-v4',
+        symbol: 'USDT-SPYB',
+        apy: 40.92,
+        apyBase: 40.92,
+        tvlUsd: 30_000_000,
+        ilRisk: 'yes',
+        exposure: 'multi',
+        outlier: true,
+        stablecoin: false,
+      },
+    ])
+
+  it('applies the conservative default when no mandate is given, and says so', async () => {
+    resetYieldCaches()
+    const ctx = testContext({ client: fakeClient(venusChain()), now: NOW, fetchImpl: FAILING_FETCH })
+    const result = await analyseYield({ asset: 'USDT', amount: '5000' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(result.decision.mandate.specified).toBe(false)
+    expect(result.decision.mandate.applied.maxIlRisk).toBe('no')
+    expect(result.decision.mandate.applied.allowOutliers).toBe(false)
+    expect(result.decision.mandate.applied.maxSingleVenuePct).toBe(50)
+    expect(result.decision.mandate.note).toContain('conservative default was applied')
+    // The failure this replaced: ranking on APR with no constraint anywhere.
+    expect(result.decision.mandate.note).toContain('not a default this agent will fall back to')
+  })
+
+  it('excludes the outlier pool it used to pick, and says which rules it broke', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(outlierPool()),
+    })
+    const result = await analyseYield({ asset: 'USDT', amount: '100000' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    // It is still the top of an APR sort — and it is still not the allocation.
+    expect(result.decision.topRankedOverall!.name).toContain('uniswap-v4')
+    expect(result.decision.best!.project).toBe('venus-core-pool')
+    expect(result.decision.allocation.every((entry) => !entry.venue.includes('uniswap'))).toBe(true)
+
+    const rules = result.decision.excludedTop!.violations.map((violation) => violation.rule)
+    expect(rules).toContain('maxIlRisk')
+    expect(rules).toContain('allowOutliers')
+    expect(result.decision.reason).toContain('excluded rather than recommended with a caveat')
+  })
+
+  it('allows the same pool when the mandate explicitly permits it — the control', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(outlierPool()),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '100000', mandate: { maxIlRisk: 'yes', allowOutliers: true } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.best!.name).toContain('uniswap-v4')
+    expect(result.decision.excludedTop).toBeNull()
+    expect(result.decision.mandate.specified).toBe(true)
+  })
+
+  it('refuses rather than allocating when nothing satisfies the mandate', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(outlierPool()),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '100000', mandate: { minTvlUsd: 10_000_000_000 } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(result.decision.action).toBe('refuse')
+    expect(result.decision.best).toBeNull()
+    expect(result.decision.allocation).toEqual([])
+    expect(result.decision.reason).toContain('Refusing to allocate is the answer here')
+    expect(result.decision.excluded.length).toBeGreaterThan(0)
+  })
+
+  it('never reports risks as an empty array', async () => {
+    resetYieldCaches()
+    for (const mandate of [undefined, { maxIlRisk: 'yes' as const, allowOutliers: true }]) {
+      resetYieldCaches()
+      const ctx = testContext({
+        client: fakeClient(venusChain()),
+        now: NOW,
+        fetchImpl: fetchReturning(outlierPool()),
+      })
+      const result = await analyseYield(
+        { asset: 'USDT', amount: '100000', ...(mandate === undefined ? {} : { mandate }) },
+        ctx,
+        { deep: false },
+      )
+      if ('error' in result) throw new Error(result.detail)
+      // Either a non-empty list, or null with a reason. Never [].
+      expect(result.decision.risks).not.toEqual([])
+      if (result.decision.risks === null) {
+        expect(result.decision.risksUnknownReason).toBeTruthy()
+      } else {
+        expect(result.decision.risks.length).toBeGreaterThan(0)
+        expect(result.decision.risksUnknownReason).toBeNull()
+      }
+    }
+  })
+
+  it('says risks are undetermined, with a reason, when it refuses', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(outlierPool()),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '100', mandate: { minTvlUsd: 10_000_000_000 } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.risks).toBeNull()
+    expect(result.decision.risksUnknownReason).toContain('No venue satisfied the mandate')
+  })
+
+  it('splits the allocation to respect the single-venue limit', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(
+        llamaResponse([
+          {
+            project: 'venus-core-pool',
+            symbol: 'USDT',
+            apyBase: supplyApyFromRatePerBlock(401_551_845n),
+            apy: supplyApyFromRatePerBlock(401_551_845n),
+          },
+          { project: 'lista-lending', symbol: 'USDT', apy: 5.5, apyBase: 5.5, tvlUsd: 40_000_000 },
+          { project: 'kinza-finance', symbol: 'USDT', apy: 4.5, apyBase: 4.5, tvlUsd: 20_000_000 },
+        ]),
+      ),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '100000', mandate: { maxSingleVenuePct: 40 } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(result.decision.allocation.length).toBeGreaterThan(1)
+    for (const entry of result.decision.allocation) {
+      expect(entry.sharePct).toBeLessThanOrEqual(40)
+    }
+    const total = result.decision.allocation.reduce((sum, entry) => sum + entry.sharePct, 0)
+    expect(total).toBeLessThanOrEqual(100)
+  })
+
+  it('honours requireOnchainVerifiable by keeping only what it can read itself', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(
+        llamaResponse([
+          {
+            project: 'venus-core-pool',
+            symbol: 'USDT',
+            apyBase: supplyApyFromRatePerBlock(401_551_845n),
+            apy: supplyApyFromRatePerBlock(401_551_845n),
+          },
+          { project: 'lista-lending', symbol: 'USDT', apy: 9.5, apyBase: 9.5, tvlUsd: 40_000_000 },
+        ]),
+      ),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '5000', mandate: { requireOnchainVerifiable: true } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.venues.every((venue) => venue.onchain !== null)).toBe(true)
+    expect(result.decision.best!.project).toBe('venus-core-pool')
+    expect(
+      result.decision.excluded.some((entry) =>
+        entry.violations.some((violation) => violation.rule === 'requireOnchainVerifiable'),
+      ),
+    ).toBe(true)
+  })
+
+  it('still honours the deprecated includeIlRisk flag', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(outlierPool()),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '5000', includeIlRisk: true },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.mandate.applied.maxIlRisk).toBe('yes')
+    // The outlier flag is a separate rule and still excludes the pool.
+    expect(result.decision.best!.project).toBe('venus-core-pool')
   })
 })

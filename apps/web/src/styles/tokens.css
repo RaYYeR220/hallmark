@@ -1,134 +1,134 @@
 /*
- * Design tokens.
+ * Design tokens — V15 "Mycelium".
+ *
+ * The registry as a living substrate: the agents are hyphae, and the few that
+ * answer when you call them are fruiting bodies.
  *
  * This file is the entire visual vocabulary of the application. Every colour,
- * every measurement, every duration used anywhere in `src/` resolves to one of
- * the custom properties below. Components never hard-code a hex value, a pixel
- * size or an easing curve.
+ * measurement, type step, radius and duration used anywhere in `src/` resolves
+ * to one of the custom properties below. Components never hard-code a value.
  *
- * Re-skinning the product is a diff to this file. Nothing else needs to change.
+ * ---------------------------------------------------------------------------
+ * THE COLOUR RULE, which is semantic and not decorative:
  *
- * Structure:
- *   1. Primitives  — raw scales, no meaning attached.
- *   2. Semantics   — what the UI actually references. Light values live on the
- *                    bare :root so a document with no colour-scheme signal
- *                    still gets a complete palette.
- *   3. Dark        — the same semantic names, redefined. Declared twice: once
- *                    under prefers-color-scheme for the "system" default, once
- *                    under [data-theme="dark"] so an explicit choice wins in
- *                    both directions.
+ *   --sig-probe   magenta   a probe we ran         (liveness, evidence, latency)
+ *   --sig-job     amber     a job that settled     (escrow, money, delivery)
+ *   --sig-attest  indigo    an attestation written (validation, reputation)
+ *
+ * Three co-equal primaries. None of them is "the brand colour", and there is
+ * no fourth. If something is a probe it is magenta wherever it appears — on a
+ * badge, in a timeline, inside an SVG colony — and the same for the other two.
+ *
+ * Negative states get no signal colour at all. An agent nobody has probed is
+ * grey hypha, because that is literally what it is: something that grew and
+ * never fruited. Absence of colour carries the meaning, so nothing needed a
+ * fourth accent to say "this failed". Every such state is also labelled in
+ * words, so colour is never the only channel.
+ * ---------------------------------------------------------------------------
  */
 
 :root {
-  /* ---- 1. Primitives ---------------------------------------------------- */
+  /* ---- 1. Primitives ----------------------------------------------------- */
 
-  /* Neutral ramp. Warm-tinted rather than pure grey, so large surfaces do not
-     read as blue under a cold display profile. */
-  --n-0: #ffffff;
-  --n-25: #fcfcfb;
-  --n-50: #f7f6f4;
-  --n-100: #efeeea;
-  --n-150: #e5e3dd;
-  --n-200: #d8d5cd;
-  --n-300: #bcb8ae;
-  --n-400: #938f85;
-  --n-500: #6e6a61;
-  --n-600: #524f48;
-  --n-700: #3b3934;
-  --n-800: #272623;
-  --n-850: #1c1b19;
-  --n-900: #141311;
-  --n-950: #0c0b0a;
+  /* Substrate ramp — slates and papers. */
+  --sub-050: #fafafa;
+  --sub-100: #f5f5ef;
+  --sub-200: #e4e7e4;
+  --sub-300: #c8cfd6;
+  --sub-400: #9faebd;
+  --sub-500: #596e89;
+  --sub-600: #4a5b72;
+  --sub-700: #3a4556;
+  --sub-800: #2a3142;
+  --sub-900: #212c3a;
+  --sub-950: #0e141c;
 
-  /* Accent. One hue carries the brand; changing these three values is the
-     single largest lever in the file. */
-  --a-300: #f5c451;
-  --a-400: #edb01f;
-  --a-500: #cf9310;
-  --a-600: #a3730b;
-  --a-700: #7a5608;
+  /* The three signals. */
+  --sig-probe: #ec02d5;
+  --sig-job: #f9b700;
+  --sig-attest: #4f41ef;
 
-  /* Status hues. Deliberately desaturated — these annotate data, they do not
-     decorate it. */
-  --ok-400: #3f9d6b;
-  --ok-500: #2f7f55;
-  --ok-600: #256845;
-  --warn-400: #c98a2e;
-  --warn-500: #a56f20;
-  --bad-400: #cc5b47;
-  --bad-500: #ac4632;
-  --bad-600: #8c3626;
-  --info-400: #5482b0;
-  --info-500: #3f6a94;
+  /* Tinted grounds, for the soft fills a signal needs behind text. */
+  --sig-probe-soft: #fdeafb;
+  --sig-job-soft: #fdf4dd;
+  --sig-attest-soft: #eceafd;
 
-  /* ---- 2. Semantics: light ---------------------------------------------- */
+  /* ---- 2. Semantics: light ----------------------------------------------- */
 
-  /* Surfaces, back to front. */
-  --surface: var(--n-25);
-  --surface-sunken: var(--n-50);
-  --surface-raised: var(--n-0);
-  --surface-overlay: var(--n-0);
-  --surface-inverse: var(--n-900);
-  --surface-accent-soft: #fdf6e3;
-  --surface-ok-soft: #eef6f1;
-  --surface-warn-soft: #fbf3e4;
-  --surface-bad-soft: #fbefec;
-  --surface-info-soft: #eef2f7;
+  --surface: var(--sub-100);
+  --surface-sunken: #eeeee6;
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+  --surface-inverse: var(--sub-900);
+  --scrim: rgb(245 245 239 / 0.9);
 
-  /* Text. */
-  --text: var(--n-900);
-  --text-secondary: var(--n-600);
-  --text-muted: var(--n-500);
-  --text-faint: var(--n-400);
-  --text-inverse: var(--n-25);
-  --text-accent: var(--a-700);
-  --text-ok: var(--ok-600);
-  --text-warn: var(--warn-500);
-  --text-bad: var(--bad-600);
-  --text-info: var(--info-500);
+  /* Signal grounds, mapped onto the names components already use. */
+  --surface-accent-soft: var(--sig-probe-soft);
+  --surface-ok-soft: var(--sig-probe-soft);
+  --surface-warn-soft: var(--sig-job-soft);
+  --surface-bad-soft: var(--sub-200);
+  --surface-info-soft: var(--sig-attest-soft);
 
-  /* Lines. */
-  --border: var(--n-150);
-  --border-strong: var(--n-200);
-  --border-faint: var(--n-100);
-  --border-accent: var(--a-400);
+  --text: var(--sub-900);
+  --text-secondary: var(--sub-700);
+  --text-muted: var(--sub-500);
+  --text-faint: var(--sub-400);
+  --text-inverse: var(--sub-100);
 
-  /* Interactive. */
-  --accent: var(--a-500);
-  --accent-hover: var(--a-600);
-  --accent-contrast: var(--n-950);
-  --focus-ring: var(--a-600);
+  --text-accent: #a5019a;
+  --text-ok: #a5019a;
+  --text-warn: #8a6400;
+  --text-bad: var(--sub-600);
+  --text-info: var(--sig-attest);
 
-  /* Charts and data marks, in draw order. */
-  --data-1: var(--a-500);
-  --data-2: var(--info-500);
-  --data-3: var(--ok-500);
-  --data-4: var(--n-400);
+  /* The hyphal network: the strokes the colony is drawn with. */
+  --hypha: #afbcc7;
+  --hypha-strong: #7c8fa2;
+
+  --border: var(--sub-200);
+  --border-strong: var(--sub-300);
+  --border-faint: #edeee9;
+  --border-accent: var(--sig-probe);
+
+  /* Interactive. The primary action is ink with a magenta halo, not a colour
+     slab — a filled brand button is on the ban list and there is no brand
+     colour here to fill it with. */
+  --accent: var(--sig-probe);
+  --accent-hover: #c401b0;
+  --accent-contrast: var(--sub-100);
+  --btn-bg: var(--sub-900);
+  --btn-fg: var(--sub-100);
+  --focus-ring: var(--sig-attest);
+
+  --data-1: var(--sig-probe);
+  --data-2: var(--sig-attest);
+  --data-3: var(--sig-job);
+  --data-4: var(--hypha-strong);
 
   /* ---- Measurements ------------------------------------------------------ */
 
-  /* Space: a 4px base with a doubling ramp past the small end. */
+  /* 6 · 12 · 18 · 24 · 36 · 48 · 72 · 108 */
   --sp-0: 0;
   --sp-1: 0.25rem;
-  --sp-2: 0.5rem;
+  --sp-2: 0.375rem;
   --sp-3: 0.75rem;
-  --sp-4: 1rem;
+  --sp-4: 1.125rem;
   --sp-5: 1.5rem;
-  --sp-6: 2rem;
+  --sp-6: 2.25rem;
   --sp-7: 3rem;
-  --sp-8: 4rem;
-  --sp-9: 6rem;
-  --sp-10: 8rem;
+  --sp-8: 4.5rem;
+  --sp-9: 6.75rem;
+  --sp-10: 9rem;
 
-  /* Type. A modest scale — this is a reading and scanning interface, not a
-     poster. Line heights are unitless so they inherit correctly. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+  /* Three faces, three jobs. Display is stencil and always uppercase; data is
+     monospaced with tabular figures so columns of numbers line up; running
+     text is condensed so a dense page still reads. */
+  --font-display: 'Bespoke Stencil', var(--font-plex-condensed), system-ui, sans-serif;
+  --font-sans: var(--font-plex-condensed), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --fs-2xs: 0.6875rem;
-  --fs-xs: 0.75rem;
+  --fs-2xs: 0.625rem;
+  --fs-xs: 0.6875rem;
   --fs-sm: 0.8125rem;
   --fs-base: 0.9375rem;
   --fs-md: 1.0625rem;
@@ -136,11 +136,11 @@
   --fs-xl: 1.5rem;
   --fs-2xl: 2rem;
   --fs-3xl: 2.75rem;
-  --fs-4xl: 3.75rem;
+  --fs-4xl: 6.5rem;
 
-  --lh-tight: 1.1;
+  --lh-tight: 0.92;
   --lh-snug: 1.3;
-  --lh-normal: 1.55;
+  --lh-normal: 1.6;
   --lh-loose: 1.7;
 
   --fw-normal: 400;
@@ -148,134 +148,156 @@
   --fw-semibold: 600;
   --fw-bold: 700;
 
-  --tracking-tight: -0.02em;
+  --tracking-tight: -0.005em;
   --tracking-normal: 0;
-  --tracking-wide: 0.02em;
-  --tracking-caps: 0.08em;
+  --tracking-wide: 0.04em;
+  --tracking-caps: 0.16em;
 
-  /* Shape. */
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 18px;
-  --radius-pill: 999px;
+  /* Shape: organic. Asymmetric radii, never a rectangle and never a pill.
+     Four sizes so a 20px chip and a 400px card can both be blobs without the
+     small one looking melted. */
+  --blob-1: 40px 20px 44px 26px / 26px 42px 22px 38px;
+  --blob-2: 24px 40px 20px 36px / 32px 20px 38px 22px;
+  --blob-3: 52% 48% 41% 59% / 61% 42% 58% 39%;
+  --blob-4: 12px 6px 14px 8px / 8px 13px 7px 12px;
 
-  /* Elevation. Light-mode shadows are shadows; dark mode swaps them for
-     borders further down, because a shadow on a dark ground is invisible. */
-  --shadow-sm: 0 1px 2px rgb(20 19 17 / 0.05);
-  --shadow-md: 0 2px 4px rgb(20 19 17 / 0.05), 0 6px 16px rgb(20 19 17 / 0.06);
-  --shadow-lg: 0 4px 8px rgb(20 19 17 / 0.06), 0 16px 40px rgb(20 19 17 / 0.09);
+  --radius-xs: 5px 3px 6px 4px / 4px 6px 3px 5px;
+  --radius-sm: var(--blob-4);
+  --radius-md: var(--blob-2);
+  --radius-lg: var(--blob-1);
+  --radius-xl: var(--blob-1);
+  --radius-pill: var(--blob-3);
 
-  /* Layout. */
+  /* Elevation is almost absent by design — this language separates planes with
+     rules and ground, not drop shadows. */
+  --shadow-sm: 0 1px 2px rgb(33 44 58 / 0.04);
+  --shadow-md: 0 2px 10px rgb(33 44 58 / 0.06);
+  --shadow-lg: 0 6px 28px rgb(33 44 58 / 0.1);
+
   --measure: 66ch;
   --width-page: 76rem;
   --width-wide: 92rem;
   --width-prose: 44rem;
-  --header-height: 3.5rem;
+  --header-height: 3.75rem;
 
-  /* Motion. Every animated property in the app references one of these, so
-     the reduced-motion block at the bottom of base.css can zero them all. */
-  --dur-fast: 100ms;
-  --dur-base: 180ms;
-  --dur-slow: 320ms;
-  --ease: cubic-bezier(0.2, 0, 0.15, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 900ms;
+  /* The overshoot the reference uses on every hover. Organic, not mechanical. */
+  --ease: cubic-bezier(0.34, 1.5, 0.4, 1);
+  --ease-out: cubic-bezier(0.3, 0, 0, 1);
+  /* How long the colony takes to creep once around. It never stops. */
+  --dur-drift: 210s;
+
+  color-scheme: light dark;
 }
 
 /* ---- 3. Semantics: dark -------------------------------------------------- */
 
 /*
- * The two selectors below carry identical bodies. The media query serves the
- * default "system" setting, where nothing is stamped on the root element; the
- * attribute selector serves an explicit user choice. The media query is guarded
- * against [data-theme="light"] so choosing light on a dark OS actually works.
+ * Declared twice on purpose: the media query serves the default "system"
+ * setting, where nothing is stamped on the root element, and the attribute
+ * selector serves an explicit choice. The media query is guarded against
+ * [data-theme="light"] so choosing light on a dark OS actually works.
+ *
+ * The three signals do not change between themes. A probe is the same magenta
+ * on paper and on slate — that is what makes the mapping learnable.
  */
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --surface: var(--n-900);
-    --surface-sunken: var(--n-950);
-    --surface-raised: var(--n-850);
-    --surface-overlay: var(--n-800);
-    --surface-inverse: var(--n-50);
-    --surface-accent-soft: #2a2008;
-    --surface-ok-soft: #10231a;
-    --surface-warn-soft: #2a1f0c;
-    --surface-bad-soft: #2c1713;
-    --surface-info-soft: #131c26;
+    --surface: var(--sub-950);
+    --surface-sunken: #0a0f16;
+    --surface-raised: var(--sub-900);
+    --surface-overlay: var(--sub-800);
+    --surface-inverse: var(--sub-100);
+    --scrim: rgb(14 20 28 / 0.9);
 
-    --text: var(--n-50);
-    --text-secondary: var(--n-300);
-    --text-muted: var(--n-400);
-    --text-faint: var(--n-500);
-    --text-inverse: var(--n-900);
-    --text-accent: var(--a-300);
-    --text-ok: var(--ok-400);
-    --text-warn: var(--warn-400);
-    --text-bad: var(--bad-400);
-    --text-info: var(--info-400);
+    --surface-accent-soft: #2b0227;
+    --surface-ok-soft: #2b0227;
+    --surface-warn-soft: #2c2005;
+    --surface-bad-soft: var(--sub-800);
+    --surface-info-soft: #17143a;
 
-    --border: var(--n-800);
-    --border-strong: var(--n-700);
-    --border-faint: var(--n-850);
-    --border-accent: var(--a-500);
+    --text: var(--sub-100);
+    --text-secondary: var(--sub-300);
+    --text-muted: var(--sub-400);
+    --text-faint: var(--sub-500);
+    --text-inverse: var(--sub-950);
 
-    --accent: var(--a-400);
-    --accent-hover: var(--a-300);
-    --accent-contrast: var(--n-950);
-    --focus-ring: var(--a-300);
+    --text-accent: #ff5cec;
+    --text-ok: #ff5cec;
+    --text-warn: #ffc93d;
+    --text-bad: var(--sub-400);
+    --text-info: #8b80ff;
 
-    --data-1: var(--a-400);
-    --data-2: var(--info-400);
-    --data-3: var(--ok-400);
-    --data-4: var(--n-500);
+    --hypha: var(--sub-800);
+    --hypha-strong: var(--sub-600);
+
+    --border: var(--sub-800);
+    --border-strong: var(--sub-700);
+    --border-faint: #1a2130;
+    --border-accent: var(--sig-probe);
+
+    --accent: var(--sig-probe);
+    --accent-hover: #ff5cec;
+    --accent-contrast: var(--sub-950);
+    --btn-bg: var(--sub-100);
+    --btn-fg: var(--sub-950);
+    --focus-ring: #8b80ff;
+
+    --data-4: var(--sub-600);
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-md: 0 2px 4px rgb(0 0 0 / 0.3), 0 6px 16px rgb(0 0 0 / 0.4);
-    --shadow-lg: 0 4px 8px rgb(0 0 0 / 0.35), 0 16px 40px rgb(0 0 0 / 0.5);
+    --shadow-md: 0 2px 10px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 6px 28px rgb(0 0 0 / 0.55);
   }
 }
 
 :root[data-theme='dark'] {
-  --surface: var(--n-900);
-  --surface-sunken: var(--n-950);
-  --surface-raised: var(--n-850);
-  --surface-overlay: var(--n-800);
-  --surface-inverse: var(--n-50);
-  --surface-accent-soft: #2a2008;
-  --surface-ok-soft: #10231a;
-  --surface-warn-soft: #2a1f0c;
-  --surface-bad-soft: #2c1713;
-  --surface-info-soft: #131c26;
+  --surface: var(--sub-950);
+  --surface-sunken: #0a0f16;
+  --surface-raised: var(--sub-900);
+  --surface-overlay: var(--sub-800);
+  --surface-inverse: var(--sub-100);
+  --scrim: rgb(14 20 28 / 0.9);
 
-  --text: var(--n-50);
-  --text-secondary: var(--n-300);
-  --text-muted: var(--n-400);
-  --text-faint: var(--n-500);
-  --text-inverse: var(--n-900);
-  --text-accent: var(--a-300);
-  --text-ok: var(--ok-400);
-  --text-warn: var(--warn-400);
-  --text-bad: var(--bad-400);
-  --text-info: var(--info-400);
+  --surface-accent-soft: #2b0227;
+  --surface-ok-soft: #2b0227;
+  --surface-warn-soft: #2c2005;
+  --surface-bad-soft: var(--sub-800);
+  --surface-info-soft: #17143a;
 
-  --border: var(--n-800);
-  --border-strong: var(--n-700);
-  --border-faint: var(--n-850);
-  --border-accent: var(--a-500);
+  --text: var(--sub-100);
+  --text-secondary: var(--sub-300);
+  --text-muted: var(--sub-400);
+  --text-faint: var(--sub-500);
+  --text-inverse: var(--sub-950);
 
-  --accent: var(--a-400);
-  --accent-hover: var(--a-300);
-  --accent-contrast: var(--n-950);
-  --focus-ring: var(--a-300);
+  --text-accent: #ff5cec;
+  --text-ok: #ff5cec;
+  --text-warn: #ffc93d;
+  --text-bad: var(--sub-400);
+  --text-info: #8b80ff;
 
-  --data-1: var(--a-400);
-  --data-2: var(--info-400);
-  --data-3: var(--ok-400);
-  --data-4: var(--n-500);
+  --hypha: var(--sub-800);
+  --hypha-strong: var(--sub-600);
+
+  --border: var(--sub-800);
+  --border-strong: var(--sub-700);
+  --border-faint: #1a2130;
+  --border-accent: var(--sig-probe);
+
+  --accent: var(--sig-probe);
+  --accent-hover: #ff5cec;
+  --accent-contrast: var(--sub-950);
+  --btn-bg: var(--sub-100);
+  --btn-fg: var(--sub-950);
+  --focus-ring: #8b80ff;
+
+  --data-4: var(--sub-600);
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-md: 0 2px 4px rgb(0 0 0 / 0.3), 0 6px 16px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 4px 8px rgb(0 0 0 / 0.35), 0 16px 40px rgb(0 0 0 / 0.5);
+  --shadow-md: 0 2px 10px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 6px 28px rgb(0 0 0 / 0.55);
 }

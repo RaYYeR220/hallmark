@@ -122,20 +122,43 @@ server action.
 ## ABI drift, found the hard way
 
 `src/lib/abi.ts` transcribes Hallmark's contracts from `contracts/src/*.sol`
-rather than importing them from `@hallmark/core`, because two of core's ABIs do
-not describe our deployment:
+rather than importing them from `@hallmark/core`. **Do not "fix" this by
+switching to core** — the two describe different contracts:
 
 - `agenticCommerceAbi` describes Altana's canonical ERC-8183 kernel, which has a
   different `createJob` signature and a different `Job` shape from
   `AgenticCommerceHooked`. Using it encodes the wrong calldata.
-- `hallmarkHookAbi.agentRecord` declares six flat return values; the deployed
-  contract returns a five-field struct. Decoding against the wrong shape
-  produces plausible-looking wrong numbers.
+- `hallmarkHookAbi.agentRecord` declares flat return values; the deployed
+  contract returns a struct.
 
-Both were verified with live `eth_call`s against chain 97 before being written
-down here.
+Both failures are silent — wrong numbers, not exceptions — which is the worst
+kind on a page whose entire claim is accuracy.
 
----
+The `Record` struct is read under exactly one shape, and that is deliberate.
+During the audit pass it was briefly read under two candidate shapes with a
+fallback. Measured against the frozen deployment, **both a five-field and a
+six-field decode succeed** — viem tolerates the trailing word — and the
+five-field one reads `jobsStalled` as `totalDeliverySeconds`. A fallback that
+can silently pick the wrong interpretation is worse than no fallback, so there
+is one shape and it is verified correct against `0xcD71a680…` (agent #2210
+reports a 4s median delivery under it, and 0s under the wrong one).
+
+## The audited rules the UI has to know about
+
+The hook gained three checks that fail *quietly* if the frontend ignores them,
+so all three are evaluated before anyone signs:
+
+| Rule | Consequence if ignored | Where it is handled |
+|---|---|---|
+| The job must pay the agent's **payee** (its registered wallet, or its owner when it declares none) | `fund` reverts with `AgentProviderMismatch` | `preflightHire` resolves the payee the same way the hook does; both hire paths use it as `provider` |
+| The buyer must not be the agent's payee or owner, and the evaluator must not be the payee | The job settles and pays out but writes **no** ERC-8004 rating | `classifyAttestability`, mirroring `HallmarkHook._classify`; the sponsored action refuses outright, the wallet path warns |
+| Budget must be at least `minAttestableBudget` (0.1 $U) | Same — settles, pays, writes nothing | Warned before signing; read from the contract, not assumed |
+
+The sponsored action deliberately stops at a funded job. An earlier version
+played both buyer and seller when the sponsor happened to own the agent; under
+the audited hook that job is classified `SelfDealt` at funding time and settles
+without a rating, producing a demo that looks complete and proves nothing. A
+genuinely settled cycle exists and is linked from `/proof`.
 
 ## Wallet
 

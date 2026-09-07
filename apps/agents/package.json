@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "register": "tsx scripts/register.ts",
-    "prove": "tsx scripts/prove.ts"
+    "prove": "tsx scripts/prove.ts",
+    "session": "tsx scripts/session.ts"
   },
   "dependencies": {
     "@hallmark/altana": "workspace:*",

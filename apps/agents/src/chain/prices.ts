@@ -1,6 +1,6 @@
 import { chainlinkAggregatorAbi, getChain, type SupportedChainId } from '@hallmark/core'
-import type { Address, PublicClient } from 'viem'
-
+import type { Address } from 'viem'
+import type { ChainClient } from './clients.js'
 /**
  * Chainlink reads, written to fail closed.
  *
@@ -72,7 +72,7 @@ export function feedAddress(chainId: SupportedChainId, pair: ChainlinkPair): Add
 }
 
 export async function readChainlinkPrice(args: {
-  client: PublicClient
+  client: ChainClient
   chainId: SupportedChainId
   pair: ChainlinkPair
   now: number

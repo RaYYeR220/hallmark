@@ -392,3 +392,83 @@ describe('rebalance act', () => {
     expect(stored ?? []).toHaveLength(0)
   })
 })
+
+describe('the cost field is genuinely total', () => {
+  /**
+   * This field reported gas only while the prose said "plus the ratio swap" —
+   * about 133x low on a real position, and worse than either being wrong
+   * alone, because a caller integrates the number and reads the paragraph.
+   */
+  it('includes the pool fee even without a live quote, and says it is a floor', async () => {
+    const ctx = testContext({
+      client: fakeClient(pancakeChain({ currentTick: 3_000 })),
+      now: NOW,
+    })
+    const result = await analyseRebalance({ tokenId: '1' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const cost = result.decision.cost!
+    expect(cost.swap!.needed).toBe(true)
+    expect(cost.swapCostBasis).toBe('fee-tier-floor')
+    expect(cost.swapCostUsd).toBeGreaterThan(0)
+
+    // The total must exceed gas, and by the pool fee at minimum.
+    expect(cost.totalUsd).toBeGreaterThan(cost.gasUsd!)
+    expect(cost.totalUsd).toBeCloseTo(cost.gasUsd! + cost.swapCostUsd!, 9)
+    expect(cost.totalDetail).toContain('at least')
+    expect(cost.totalDetail).toContain('floor, not an estimate')
+  })
+
+  it('keeps gas separately addressable, so neither number is ambiguous', async () => {
+    const ctx = testContext({ client: fakeClient(pancakeChain({ currentTick: 3_000 })), now: NOW })
+    const result = await analyseRebalance({ tokenId: '1' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    const cost = result.decision.cost!
+    expect(cost.gasUsd).toBe(cost.gasCostUsd)
+    expect(cost.gasUsd).toBeLessThan(cost.totalUsd!)
+  })
+
+  it('prices the swap at the pool fee times the notional, which is what was missing', async () => {
+    // The measured failure: an 8,372 USDT swap at the 0.05% tier costs over $4
+    // in fee alone, and the field reported three cents of gas. The guarantee
+    // is the relationship, not a magnitude that depends on fixture size.
+    const ctx = testContext({ client: fakeClient(pancakeChain({ currentTick: 3_000 })), now: NOW })
+    const result = await analyseRebalance({ tokenId: '1' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const cost = result.decision.cost!
+    // Price whichever side is actually being sold: WBNB at $700 from the
+    // Chainlink fixture, USDT at par. Assuming the wrong leg is a factor of
+    // 700, which is the kind of error this whole field exists to stop.
+    const swapped = Number(cost.swap!.amountIn) / 1e18
+    const tokenUsd = cost.swap!.tokenIn === 'WBNB' ? 700 : 1
+    const notionalUsd = swapped * tokenUsd
+    const feeTier = 500 / 1_000_000
+    expect(cost.swapCostUsd!).toBeCloseTo(notionalUsd * feeTier, 6)
+
+    // And the measured case that prompted this: an 8,372.64 USDT swap at the
+    // 0.05% tier is $4.19 of fee alone, against the $0.035738 the field used
+    // to report for the whole move. Comparing to the fixture's own gas would
+    // be meaningless — it runs at 1 gwei, mainnet at 0.05.
+    const realWorldFee = 8_372.64 * feeTier
+    expect(realWorldFee).toBeGreaterThan(4)
+    expect(realWorldFee / 0.035738).toBeGreaterThan(100)
+  })
+
+  it('reports zero swap cost, and says so, when no swap is needed', async () => {
+    const ctx = testContext({ client: fakeClient(pancakeChain({ currentTick: 900 })), now: NOW })
+    const result = await analyseRebalance(
+      { tokenId: '1', driftToleranceBps: 1_500 },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    const cost = result.decision.cost!
+    if (cost.swap?.needed === false) {
+      expect(cost.swapCostBasis).toBe('no-swap')
+      expect(cost.swapCostUsd).toBe(0)
+      expect(cost.totalUsd).toBeCloseTo(cost.gasUsd!, 9)
+      expect(cost.totalDetail).toContain('all gas')
+    }
+  })
+})

@@ -1,12 +1,12 @@
 import { erc20Abi } from '@hallmark/core'
-import { parseAbiItem, type Address, type PublicClient } from 'viem'
-
+import { parseAbiItem, type Address } from 'viem'
 import {
   PANCAKE_V2_FACTORY,
   WBNB,
   pancakeV2FactoryAbi,
   pancakeV2PairAbi,
 } from './abis.js'
+import type { ChainClient } from './clients.js'
 
 /**
  * Who holds the supply, and whether the liquidity can leave.
@@ -78,7 +78,7 @@ const DEFAULT_CHUNKS = 4
 const MAX_CANDIDATES = 4_000
 
 export async function scanHolders(args: {
-  client: PublicClient
+  client: ChainClient
   token: Address
   /** Blocks to look back over. Default 20,000 (~a few hours on BNB Chain). */
   windowBlocks?: bigint
@@ -225,7 +225,7 @@ function burnLabel(address: Address): string | null {
 }
 
 export async function scanLpLock(args: {
-  client: PublicClient
+  client: ChainClient
   token: Address
 }): Promise<LpLockScan> {
   const { client, token } = args

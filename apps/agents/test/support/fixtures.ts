@@ -1,4 +1,4 @@
-import type { Address, Hex, PublicClient } from 'viem'
+import type { Address, Hex } from 'viem'
 import type { Session } from '@hallmark/altana'
 
 import type {
@@ -12,6 +12,7 @@ import type {
 import { executeIntent } from '../../src/runtime/act.js'
 import { createMemoryStore, type Store } from '../../src/runtime/store.js'
 import { loadConfig } from '../../src/runtime/config.js'
+import type { ChainClient } from '../../src/chain/clients.js'
 
 /**
  * Fixture chain state.
@@ -40,7 +41,7 @@ export type FakeChain = {
   misses: string[]
 }
 
-export function fakeClient(chain: FakeChain): PublicClient {
+export function fakeClient(chain: FakeChain): ChainClient {
   const client = {
     async readContract(args: { address: string; functionName: string; args?: readonly unknown[] }) {
       const key = readKey(args.address, args.functionName, args.args ?? [])
@@ -77,7 +78,7 @@ export function fakeClient(chain: FakeChain): PublicClient {
     },
     chain: { id: 56 },
   }
-  return client as unknown as PublicClient
+  return client as unknown as ChainClient
 }
 
 export function emptyChain(overrides: Partial<FakeChain> = {}): FakeChain {
@@ -129,7 +130,7 @@ export const CONFIRMED = {
 // ---------------------------------------------------------------------------
 
 export type TestContextArgs = {
-  client?: PublicClient
+  client?: ChainClient
   store?: Store
   sessions?: SessionProvider
   executor?: Executor
