@@ -1,0 +1,58 @@
+{
+  "name": "@hallmark/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Publish an ERC-8004 agent to BNB Chain and opt into on-chain validation, from a config file, a CLI or a library call.",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "hallmark": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "hallmark": "node dist/cli.js"
+  },
+  "keywords": [
+    "erc-8004",
+    "erc8004",
+    "bnb-chain",
+    "bsc",
+    "agent",
+    "x402",
+    "a2a",
+    "mcp"
+  ],
+  "dependencies": {
+    "@hallmark/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.3",
+    "viem": "^2.56.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
