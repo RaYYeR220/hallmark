@@ -108,7 +108,7 @@ because a zero there would describe our inaction rather than their failure.
 cast call 0x8004BAa17C55a88189AE136b182e5fdA19dE9b63 \
   "getSummary(uint256,address[],string,string)(uint64,int128,uint8)" \
   212840 "[0x9ff98B99B6B250b3a23961EA932F4ef147B909ab]" "reachable" "" \
-  --rpc-url https://bsc-dataseed.binance.org          # 1, 100, 0
+  --rpc-url https://bsc-dataseed.binance.org          # 2, 100, 0 — two writes, both reachable
 ```
 
 Every attestation carries a `feedbackURI` pointing at a content-addressed evidence bundle, and the
