@@ -182,6 +182,8 @@ export type PublisherOptions = {
   requireDeclaredProtocol?: boolean
   /** Which vocabulary tags to write. Defaults to `reachable` + `successRate`. */
   feedbackTags?: FeedbackTag[]
+  /** Share of the attestor's balance to leave untouched, as a percent. Default 20. */
+  reserveBalancePct?: number
   validationTag?: string
   /**
    * Plan as if this address were signing. Dry run only, and only when the
@@ -195,6 +197,15 @@ export type PublisherOptions = {
 export type Publisher = {
   chainId: SupportedChainId
   dryRun: boolean
+  /**
+   * False where no `HallmarkHook` is deployed. `recordProbe` is Hallmark's own
+   * freshness clock, not part of ERC-8004, so on a chain without the hook it is
+   * inapplicable rather than a failure — callers skip it instead of logging a
+   * refusal per agent.
+   */
+  hookAvailable: boolean
+  /** Attestor balance in wei at startup, or null if it could not be read. */
+  balanceWei: bigint | null
   attestor: Address | null
   validator: Address | null
   agentOwner: Address | null
@@ -211,15 +222,16 @@ export type Publisher = {
   requestValidation(agentId: number, evidenceHash: `0x${string}`, uri: string): Promise<PublishOutcome>
 }
 
-export function createPublisher(options: PublisherOptions): Publisher {
+export async function createPublisher(options: PublisherOptions): Promise<Publisher> {
   const { chainId, config, store } = options
   const logger = options.logger ?? silentLogger
   const chain = getChain(chainId)
   const reader = options.reader ?? createRegistryReader(chainId, { rpcUrl: rpcUrlFor(config, chainId) })
   const client = reader.client as PublicClient
   const dryRun = options.dryRun !== false
-  const minScore = options.minScore ?? 1
+  const minScore = options.minScore ?? 0
   const requireDeclaredProtocol = options.requireDeclaredProtocol !== false
+  const reserveBalancePct = Math.max(0, Math.min(90, options.reserveBalancePct ?? 20))
   const feedbackTags: FeedbackTag[] = options.feedbackTags ?? DEFAULT_TAGS
   const validationTag = options.validationTag ?? DEFAULT_VALIDATION_TAG
 
@@ -253,9 +265,33 @@ export function createPublisher(options: PublisherOptions): Publisher {
   const attestorAddress: Address | null = attestorAccount?.address ?? plannerAddress
   const validatorAddress: Address | null = validatorAccount?.address ?? plannerAddress
 
+  // Never plan to drain the wallet. The ceiling is whichever is smaller: the
+  // configured per-run budget, or the share of the actual on-chain balance we
+  // are willing to spend. A budget larger than the balance is not a budget.
+  let balanceWei: bigint | null = null
+  let effectivePerRunWei = config.budget.perRunWei
+  if (attestorAddress !== null) {
+    try {
+      balanceWei = await Promise.resolve(client.getBalance({ address: attestorAddress }))
+      const spendable = (balanceWei * BigInt(100 - reserveBalancePct)) / 100n
+      if (spendable < effectivePerRunWei) {
+        logger.info('per-run ceiling lowered to protect the wallet balance', {
+          balance: `${formatEther(balanceWei)} BNB`,
+          reservePct: reserveBalancePct,
+          ceiling: `${formatEther(spendable)} BNB`,
+        })
+        effectivePerRunWei = spendable
+      }
+    } catch (err) {
+      logger.warn('could not read the attestor balance; falling back to the configured ceiling', {
+        error: messageOf(err),
+      })
+    }
+  }
+
   const budget =
     options.budget ??
-    createBudgetGuard({ perRunWei: config.budget.perRunWei, totalWei: config.budget.totalWei })
+    createBudgetGuard({ perRunWei: effectivePerRunWei, totalWei: config.budget.totalWei })
 
   let cachedGasPrice: bigint | null = options.gasPriceWei ?? null
   const nonces = new Map<string, bigint>()
@@ -415,6 +451,8 @@ export function createPublisher(options: PublisherOptions): Publisher {
   return {
     chainId,
     dryRun,
+    hookAvailable: config.hookAddresses[chainId] !== null,
+    balanceWei,
     attestor: attestorAddress,
     validator: validatorAddress,
     agentOwner: ownerAccount?.address ?? null,

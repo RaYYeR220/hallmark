@@ -217,7 +217,7 @@ describe('publishing refuses the permissive verdict by default', () => {
     const { createMemoryStore } = await import('../src/store.ts')
     const { loadConfig } = await import('../src/config.ts')
     return {
-      strict: createPublisher({
+      strict: await createPublisher({
         chainId: 56,
         config: loadConfig({ env: {} }),
         store: createMemoryStore(),
@@ -226,7 +226,7 @@ describe('publishing refuses the permissive verdict by default', () => {
         gasPriceWei: 50_000_000n,
         plannerAddress: '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab',
       }),
-      loose: createPublisher({
+      loose: await createPublisher({
         chainId: 56,
         config: loadConfig({ env: {} }),
         store: createMemoryStore(),

@@ -215,6 +215,43 @@ export function hasSuccessRate(record: Pick<RunRecord, 'kinds' | 'protocolLive'>
 }
 
 /**
+ * What this run lets us claim about an agent.
+ *
+ *   positive      a declared protocol demonstrably works
+ *   negative      it declares one and does not speak it — the informative case
+ *   unreachable   it declared endpoints and none of them answered at all
+ *   inapplicable  nothing contactable was declared, so we tried nothing and
+ *                 have nothing to say
+ *
+ * `negative` and `unreachable` are the half of the distribution that a
+ * marketplace actually needs and that an optimistic publisher never writes.
+ */
+export type Verdict = 'positive' | 'negative' | 'unreachable' | 'reachable-only' | 'inapplicable'
+
+export const VERDICTS: Verdict[] = ['positive', 'negative', 'unreachable', 'reachable-only', 'inapplicable']
+
+export function verdictOf(record: Pick<RunRecord, 'kinds' | 'protocolLive' | 'okCount' | 'scoredCount'>): Verdict {
+  // Nothing contactable was declared, so we tried nothing.
+  if (record.scoredCount === 0) return 'inapplicable'
+  if (record.protocolLive) return 'positive'
+  // Declared endpoints, none answered: `reachable: 0` is a true claim whether
+  // or not it named a protocol.
+  if (record.okCount === 0) return 'unreachable'
+  if (declaresMachineProtocol(record)) return 'negative'
+  return 'reachable-only'
+}
+
+/** The verdicts a default publish run draws from. */
+export const DEFAULT_PUBLISH_VERDICTS: Verdict[] = ['positive', 'negative', 'unreachable']
+
+/** Which side of the ledger a verdict sits on, for `--verdict positive|negative|both`. */
+export function verdictSide(verdict: Verdict): 'positive' | 'negative' | 'neither' {
+  if (verdict === 'positive') return 'positive'
+  if (verdict === 'negative' || verdict === 'unreachable') return 'negative'
+  return 'neither'
+}
+
+/**
  * Encode one tag from a probe run.
  *
  * Returns `null` when the tag does not apply to this agent — which is not a
@@ -224,6 +261,10 @@ export function hasSuccessRate(record: Pick<RunRecord, 'kinds' | 'protocolLive'>
 export function encodeTag(record: RunRecord, tag: FeedbackTag): EncodedFeedback | null {
   switch (tag) {
     case 'reachable': {
+      // Nothing contactable was declared, so we never tried, so we have no
+      // business saying anything. `reachable: 0` here would describe our own
+      // inaction as the agent's failure.
+      if (record.scoredCount === 0) return null
       const answered = record.okCount > 0
       return finish(tag, answered ? BOOL_TRUE : BOOL_FALSE, 0, answered
         ? `${record.okCount}/${record.scoredCount} declared endpoints answered`

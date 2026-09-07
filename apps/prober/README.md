@@ -126,7 +126,16 @@ One more thing the experiment showed, and it is an argument for the strict metri
 
 > Of ~338,000 ERC-8004 agents registered on BNB Smart Chain, a 6,000-agent sample (seed 42, ceiling 338,235) found **28 agents — 0.47%, one in 214 — serving a working agent protocol, behind 5 distinct hosts.** About 10% of agents declare a machine-callable protocol; under 5% of those answer. An independent census of a different 6,000-agent sample found 23 across 3 hosts.
 
-**Three independent measurements now exist**, from three code paths and three different draws: **23/6,000** (census harness), **28/6,000** (this prober, seed 42, ceiling 338,235) and **6/3,000** (this prober, seed 20260908) — 0.38%, 0.47% and 0.20%. All three land in the same 0.2-0.5% band, and the third surfaced two hosts the first two never drew (`x402.quickintel.io` and a `bubbleupdappos.workers.dev` host), which is exactly what operator clustering predicts. Triangulating across samples is how you get an order of magnitude you can defend; no single draw gives you one.
+**Four independent measurements now exist**, from different code paths and different draws:
+
+| sample | protocol-live | rate |
+| --- | ---: | ---: |
+| census harness, 6,000 agents | 23 | 0.38% |
+| this prober, 6,000, seed 42, ceiling 338,235 | 28 | 0.47% |
+| this prober, 3,000, seed 20260908 | 6 | 0.20% |
+| **combined store, 12,403 agents** | **19** | **0.15%** |
+
+All four land in the same 0.2-0.5% band. The combined 12,403-agent store puts the live population behind **7 distinct hosts** — `api.bortagent.xyz`, `app.singularry.org`, `clawdmint-api.vercel.app`, `clipx.app`, `x402.quickintel.io`, and two `bubbleupdappos.workers.dev` hosts — and the later draws surfaced hosts the earlier ones never saw, which is exactly what operator clustering predicts. Triangulating across samples is how you get an order of magnitude you can defend; no single draw gives you one.
 
 Agent counts are reported with the caveat that they are operator-clustered — "28 live agents" is not 28 independent teams. `stats` prints `protocol-live hosts` directly beneath `PROTOCOL-LIVE (strict)` for exactly this reason.
 
@@ -186,7 +195,7 @@ Writing a graded 0-100 score into `reachable` is non-conformant, and worse, it p
 
 | tag | type | what Hallmark writes | when |
 | --- | --- | --- | --- |
-| `reachable` | bool | **100** or **0**. 100 = at least one declared endpoint answered at all. | always |
+| `reachable` | bool | **100** or **0**. 100 = at least one declared endpoint answered at all. | only when the agent declared something contactable, so we actually tried |
 | `successRate` | percent | **100** or **0**. 100 = at least one endpoint is protocol-live by the strict rule; 0 = it declares a protocol and none of them speak it. | only when the agent declares a machine-callable protocol, **or** proved one regardless of how its card labelled it |
 | `responseTime` | ms | median round trip across the endpoints that answered | opt-in, `--tags …,responseTime` |
 
@@ -216,6 +225,45 @@ reputation agent 6255  score 82
 ```
 
 The second write is cheaper because only the first `giveFeedback` for an (agent, client) pair allocates fresh storage — measured 213,948 then 132,140 — and the plan is costed accordingly rather than at a flat rate.
+
+### Choosing what to attest to: verdicts
+
+Sorting by score and taking the top N is structurally optimistic. It selects exactly the agents that make the registry look healthy and never the ones that make it look honest. On the real mainnet store that skim planned **600 `reachable=100` writes and zero `successRate=0`** — while the single most useful thing we know stayed entirely off chain.
+
+Every probed agent falls into one of five verdicts, and the publisher draws across them rather than down a score list:
+
+| verdict | meaning | what it writes | in the 12,403-agent mainnet store |
+| --- | --- | --- | ---: |
+| `positive` | a declared protocol demonstrably works | `reachable=100`, `successRate=100` | **19** (0.15%) |
+| `negative` | declares a protocol, answers, does not speak it | `reachable=100`, **`successRate=0`** | **214** (1.7%) |
+| `unreachable` | declared endpoints, none answered | **`reachable=0`**, `successRate=0` if it declared a protocol | **1,198** (9.7%) |
+| `reachable-only` | answered, declares no protocol | `reachable=100` only | 3,106 (25%) |
+| `inapplicable` | nothing contactable was declared | **nothing at all** | 7,866 (63%) |
+
+`inapplicable` writes nothing on purpose. We never contacted those agents, so `reachable: 0` would describe *our own inaction* as their failure. That restraint is exactly what makes the negatives defensible: when we write `successRate: 0`, it is because the agent told us it speaks a protocol and then did not.
+
+```bash
+--verdict both       # default: round-robin across positive / negative / unreachable
+--verdict negative   # only the informative half
+--negatives          # same thing
+--verdict positive   # only the wins
+--max-negatives N    # cap the negative side (default 100) so a run cannot be all-negative either
+--allow-web-only     # also include reachable-only agents
+--seed S             # reproducible draw
+```
+
+Within a verdict class the draw is a seeded shuffle, not agent-id order — low ids are old agents, and that is its own bias.
+
+**Spend protection.** The publisher reads the attestor's actual balance at startup and lowers the per-run ceiling to a share of it (`--reserve-balance-pct`, default 20), so a run can never plan to drain the wallet:
+
+```
+per-run ceiling lowered to protect the wallet balance
+  balance="0.0014854006 BNB" reservePct=20 ceiling="0.00118832048 BNB"
+```
+
+Every write beyond that point is skipped with the budget reason attached, not silently dropped.
+
+**`recordProbe` is inapplicable, not failed, where no hook is deployed.** `HallmarkHook` is Hallmark's own contract and lives on testnet only; on mainnet the CLI says so once and does not emit a refusal line per agent.
 
 ### Gas: why we do not trust `eth_estimateGas`
 
@@ -363,7 +411,7 @@ Copy `.env.example`. Everything has a working default except the keys, and the k
 
 | variable | |
 | --- | --- |
-| `RPC_URL_56`, `RPC_URL_97` | default to the public nodes `@hallmark/core` ships with |
+| `RPC_URL_56`, `RPC_URL_97` | default to the public nodes `@hallmark/core` ships with. **Set `RPC_URL_56` before committing any write** — see below |
 | `SCAN_API_KEY` | optional; without it the anonymous 8004scan limits apply |
 | `EVIDENCE_BASE_URL` | `https://hallmark-market.vercel.app/api/evidence`. This exact prefix ends up inside every on-chain attestation |
 | `STORE_DIR` | `./data` |
@@ -375,6 +423,19 @@ Copy `.env.example`. Everything has a working default except the keys, and the k
 | `PORT` | `8787` |
 | `BUDGET_WEI_PER_RUN`, `BUDGET_WEI_TOTAL` | `0.0015` / `0.0035` BNB |
 | `PROBE_TIMEOUT_MS`, `PROBE_CONCURRENCY`, `PROBE_MAX_REDIRECTS`, `PROBE_MAX_BODY_BYTES`, `PROBE_CHECK_DNS`, `PROBE_RESOLVE_OFFCHAIN` | probe tuning |
+
+### ⚠️ The default mainnet RPC cannot confirm a transaction
+
+`bsc-rpc.publicnode.com` — `@hallmark/core`'s default for chain 56 — **refuses `eth_getTransactionReceipt`** with *"Archive requests require a personal token"*. Reads are fine; anything that waits for a receipt breaks against it, which means every write path: `waitForTransactionReceipt` throws, the publisher records `receipt not observed`, and the post-condition read never runs even though the transaction landed.
+
+These serve receipts and are known good for writes:
+
+```
+RPC_URL_56=https://bsc-dataseed.binance.org
+# also fine: https://bsc-dataseed1.defibit.io, https://bsc-dataseed1.ninicoin.io
+```
+
+The general point is worth stating: **a node that is adequate for a sweep is not necessarily adequate for a publish.** A prober does millions of cheap `eth_call`s and wants a generous read endpoint; a publisher does a handful of transactions and needs receipts and reliable nonces. Those are different products, and `@hallmark/core` shipping one default for both is a sharp edge — worth splitting into a read URL and a write URL there rather than papering over it here.
 
 ---
 

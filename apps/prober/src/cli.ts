@@ -20,7 +20,8 @@ import { createProbeContext, probeAgent, sweep } from './probe/index.ts'
 import { createFileStore, toRunRecord } from './store.ts'
 import type { EvidenceStore, RunRecord } from './store.ts'
 import { computeStats, formatStats } from './stats.ts'
-import { selectAgents } from './select.ts'
+import { selectAgents, selectForPublish } from './select.ts'
+import type { PublishSelection } from './select.ts'
 import { canonicalBundleJson } from './evidence.ts'
 import { createPublisher, formatPlan } from './publish.ts'
 import { ALL_TAGS, DEFAULT_TAGS, TagValueError, resolveTag } from './tags.ts'
@@ -38,6 +39,7 @@ usage
   hallmark-probe publish  [--chain 56|97] [--commit] [--budget-wei N] [--min-score N]
                           [--agent <id>] [--limit N] [--kind reputation|hook|validation|all]
                           [--tags reachable,successRate,responseTime] [--as 0x<sender>]
+                          [--verdict positive|negative|both] [--negatives] [--max-negatives N]
                           [--allow-web-only] [--json]
   hallmark-probe verify   <0x-evidence-hash | https://…/api/evidence/0x…> [--chain 56|97] [--json]
   hallmark-probe stats    [--chain 56|97] [--json]
@@ -102,6 +104,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       'no-store': { type: 'boolean' },
       'no-dns': { type: 'boolean' },
       'allow-web-only': { type: 'boolean' },
+      verdict: { type: 'string' },
+      negatives: { type: 'boolean' },
+      'max-negatives': { type: 'string' },
     },
   })
 
@@ -241,12 +246,16 @@ async function runPublish(deps: CommandDeps): Promise<number> {
   const chainId = chainOf(values)
   const commit = values['commit'] === true
   const kind = String(values['kind'] ?? 'all')
-  const minScore = values['min-score'] === undefined ? 1 : Number(values['min-score'])
+  // Defaults to 0, not 1. The score gate used to stand in for "is this worth
+  // attesting"; verdict selection does that job properly now, and a floor of 1
+  // would silently exclude every `unreachable` agent, since they all score 0 —
+  // which is precisely the population whose negative is worth publishing.
+  const minScore = values['min-score'] === undefined ? 0 : Number(values['min-score'])
   const limit = values['limit'] === undefined ? 25 : Number(values['limit'])
   const tags = tagsOf(values)
 
   const budgetOverride = values['budget-wei'] === undefined ? undefined : BigInt(String(values['budget-wei']))
-  const publisher = createPublisher({
+  const publisher = await createPublisher({
     chainId,
     logger,
     store,
@@ -265,9 +274,14 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     },
   })
 
-  const candidates = await pickPublishCandidates(store, chainId, values, minScore, limit)
+  const selection = await pickPublishCandidates(store, chainId, values, minScore, limit)
+  const candidates = selection.records
   if (candidates.length === 0) {
-    logger.error('nothing to publish', { chain: chainId, hint: 'run a sweep first, or lower --min-score' })
+    logger.error('nothing to publish', {
+      chain: chainId,
+      available: JSON.stringify(selection.available),
+      hint: 'run a sweep first, lower --min-score, or widen --verdict',
+    })
     return 1
   }
 
@@ -275,16 +289,25 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     chain: chainId,
     agents: candidates.length,
     kinds: kind,
+    verdicts: describeTally(selection.chosen),
     scope: values['allow-web-only'] === true ? 'any reachable agent' : 'agents declaring a protocol',
     attestor: publisher.attestor ?? '(unset)',
-    validator: publisher.validator ?? '(unset)',
+    balance: publisher.balanceWei === null ? '(unknown)' : `${formatEther(publisher.balanceWei)} BNB`,
     tags: tags.join(','),
   })
+  logger.info('verdict distribution in the store', { available: describeTally(selection.available) })
+  if (!publisher.hookAvailable && (kind === 'all' || kind === 'hook')) {
+    logger.info('HallmarkHook is not deployed on this chain; recordProbe is inapplicable here', { chain: chainId })
+  }
 
   const outcomes: PublishOutcome[] = []
   for (const record of candidates) {
     if (kind === 'all' || kind === 'reputation') outcomes.push(...(await publisher.publishReputation(record)))
-    if (kind === 'all' || kind === 'hook') outcomes.push(await publisher.recordProbeOnHook(record))
+    // Silently inapplicable rather than a refusal per agent: the hook is
+    // Hallmark's own contract and is only deployed on testnet.
+    if ((kind === 'all' || kind === 'hook') && publisher.hookAvailable) {
+      outcomes.push(await publisher.recordProbeOnHook(record))
+    }
     if (kind === 'all' || kind === 'validation') {
       const requestHash = values['request-hash'] === undefined ? undefined : (String(values['request-hash']) as `0x${string}`)
       outcomes.push(await publisher.publishValidation(record, requestHash))
@@ -304,6 +327,7 @@ async function runPublish(deps: CommandDeps): Promise<number> {
           commit,
           minScore,
           tags,
+          verdicts: { available: selection.available, chosen: selection.chosen, seed: selection.seed },
           outcomes,
           budget: {
             perRunWei: budget.perRunWei.toString(),
@@ -518,22 +542,38 @@ async function pickPublishCandidates(
   values: Values,
   minScore: number,
   limit: number,
-): Promise<RunRecord[]> {
+): Promise<PublishSelection> {
+  const all = (await store.listLatest(chainId)).filter((record) => record.score >= minScore)
+
   if (values['agent'] !== undefined) {
     const ids = parseIdList(String(values['agent']))
-    const found: RunRecord[] = []
-    for (const id of ids) {
-      const record = await store.getLatest(chainId, id)
-      if (record !== null) found.push(record)
-    }
-    return found
+    return selectForPublish(await store.listLatest(chainId), { agentIds: ids })
   }
 
-  const all = await store.listLatest(chainId)
-  return all
-    .filter((record) => record.score >= minScore)
-    .sort((a, b) => b.score - a.score || a.agentId - b.agentId)
-    .slice(0, Math.max(0, limit))
+  const side = sideOf(values['verdict'], values['negatives'] === true)
+  return selectForPublish(all, {
+    side,
+    limit,
+    maxNegatives: values['max-negatives'] === undefined ? 100 : Number(values['max-negatives']),
+    allowWebOnly: values['allow-web-only'] === true,
+    ...(typeof values['seed'] === 'string' ? { seed: values['seed'] } : {}),
+  })
+}
+
+function sideOf(raw: unknown, negativesFlag: boolean): 'positive' | 'negative' | 'both' {
+  if (negativesFlag) return 'negative'
+  const value = String(raw ?? 'both').toLowerCase()
+  if (value === 'positive' || value === 'negative' || value === 'both') return value
+  throw new Error(`--verdict must be positive, negative or both, got "${String(raw)}"`)
+}
+
+function describeTally(tally: Record<string, number>): string {
+  return (
+    Object.entries(tally)
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(' ') || 'none'
+  )
 }
 
 function formatRun(run: ProbeRun): string {

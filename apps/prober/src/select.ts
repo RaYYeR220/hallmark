@@ -11,6 +11,10 @@
 import { ScanClient } from '@hallmark/core'
 import type { RegistryReader, ScanAgent } from '@hallmark/core'
 
+import { DEFAULT_PUBLISH_VERDICTS, VERDICTS, verdictOf, verdictSide } from './tags.ts'
+import type { Verdict } from './tags.ts'
+import type { RunRecord } from './store.ts'
+
 export type Selection = {
   agentIds: number[]
   /** Highest agent id the sample was drawn against. */
@@ -145,4 +149,127 @@ export async function recentAgentIds(scan: ScanClient, chainId: number, count: n
   }
 
   return ids
+}
+
+/* ------------------------------------------------------------------ */
+/* choosing what to publish                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Choosing which probed agents to attest to.
+ *
+ * Sorting by score and taking the top N is structurally optimistic: it selects
+ * exactly the agents that make the registry look healthy and never the ones
+ * that make it look honest. On the mainnet store that skim produced 600
+ * planned `reachable=100` writes and not one `successRate=0`, while the
+ * interesting fact — 1,388 agents declare a protocol and 19 speak it — stayed
+ * off chain entirely.
+ *
+ * So the default draws round-robin across the verdict classes, and within a
+ * class it draws with a seeded shuffle rather than by agent id, because low ids
+ * are old agents and that is its own bias.
+ */
+
+export type PublishSelection = {
+  records: RunRecord[]
+  /** How many of each verdict were available before the cap. */
+  available: Record<Verdict, number>
+  /** How many of each verdict were chosen. */
+  chosen: Record<Verdict, number>
+  seed: string
+}
+
+export type PublishSelectOptions = {
+  /** `positive`, `negative`, or `both` (the default, round-robin balanced). */
+  side?: 'positive' | 'negative' | 'both'
+  /** Overall cap on agents. */
+  limit?: number
+  /** Cap on negative-side agents specifically, so a run cannot be all-negative either. */
+  maxNegatives?: number
+  /** Include agents that answered but declare no protocol. Off by default. */
+  allowWebOnly?: boolean
+  seed?: string
+  /** Restrict to these agent ids, ignoring the balancing. */
+  agentIds?: number[]
+}
+
+export function selectForPublish(all: RunRecord[], options: PublishSelectOptions = {}): PublishSelection {
+  const seed = options.seed ?? 'hallmark-publish'
+  const side = options.side ?? 'both'
+  const limit = Math.max(0, options.limit ?? 50)
+  const maxNegatives = Math.max(0, options.maxNegatives ?? 100)
+
+  const buckets = emptyTally()
+  const byVerdict = new Map<Verdict, RunRecord[]>()
+  for (const verdict of VERDICTS) byVerdict.set(verdict, [])
+
+  for (const record of all) {
+    const verdict = verdictOf(record)
+    buckets[verdict] += 1
+    byVerdict.get(verdict)?.push(record)
+  }
+
+  if (options.agentIds !== undefined && options.agentIds.length > 0) {
+    const wanted = new Set(options.agentIds)
+    const records = all.filter((record) => wanted.has(record.agentId))
+    return { records, available: buckets, chosen: tallyOf(records), seed }
+  }
+
+  const wantedVerdicts = DEFAULT_PUBLISH_VERDICTS.filter((verdict) => {
+    if (side === 'both') return true
+    return verdictSide(verdict) === side
+  })
+  if (options.allowWebOnly === true && side !== 'negative') wantedVerdicts.push('reachable-only')
+
+  // Shuffle inside each class so the draw is representative of the class rather
+  // than of whoever registered first.
+  const queues = wantedVerdicts.map((verdict) => ({
+    verdict,
+    items: shuffle(byVerdict.get(verdict) ?? [], `${seed}:${verdict}`),
+  }))
+
+  const records: RunRecord[] = []
+  let negatives = 0
+  let progressed = true
+
+  while (records.length < limit && progressed) {
+    progressed = false
+    for (const queue of queues) {
+      if (records.length >= limit) break
+      const next = queue.items.shift()
+      if (next === undefined) continue
+      if (verdictSide(queue.verdict) === 'negative') {
+        if (negatives >= maxNegatives) continue
+        negatives += 1
+      }
+      records.push(next)
+      progressed = true
+    }
+  }
+
+  return { records, available: buckets, chosen: tallyOf(records), seed }
+}
+
+/** Deterministic Fisher-Yates driven by the shared seeded PRNG. */
+export function shuffle<T>(items: readonly T[], seed: string): T[] {
+  const out = [...items]
+  const random = mulberry32(seedFrom(seed))
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1))
+    const a = out[i] as T
+    const b = out[j] as T
+    out[i] = b
+    out[j] = a
+  }
+  return out
+}
+
+function emptyTally(): Record<Verdict, number> {
+  return Object.fromEntries(VERDICTS.map((v) => [v, 0])) as Record<Verdict, number>
+}
+
+function tallyOf(records: RunRecord[]): Record<Verdict, number> {
+  const tally = emptyTally()
+  for (const record of records) tally[verdictOf(record)] += 1
+  return tally
 }

@@ -191,7 +191,7 @@ describe('dry run', () => {
       }),
     } as never
 
-    return createPublisher({
+    return await createPublisher({
       chainId: 97,
       config: loadConfig({ env: {}, budget: { perRunWei, totalWei: perRunWei } }),
       store: createMemoryStore(),
@@ -229,7 +229,7 @@ describe('dry run', () => {
     const { loadConfig } = await import('../src/config.ts')
 
     const owner = '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab'
-    const publisher = createPublisher({
+    const publisher = await createPublisher({
       chainId: 97,
       config: loadConfig({ env: {} }),
       store: createMemoryStore(),
@@ -253,9 +253,36 @@ describe('dry run', () => {
     if (first?.status === 'skipped') expect(first.reason).toMatch(/self-feedback/)
   })
 
-  it('refuses to write feedback for a dead agent', async () => {
+  it('publishes a score-0 agent by default, because its negative is the point', async () => {
+    // A `--min-score 1` default would silently exclude every unreachable agent,
+    // which is the population whose `successRate=0` we most want on chain.
     const publisher = await planner(10_000_000_000_000_000n)
-    const outcomes = await publisher.publishReputation(record({ score: 0 }))
+    const outcomes = await publisher.publishReputation(
+      record({ score: 0, okCount: 0, latencies: [], protocolLive: false, protocolLiveKinds: [] }),
+    )
+    expect(outcomes.map((o) => o.status)).toEqual(['dry-run', 'dry-run'])
+    expect(outcomes.map((o) => o.plan.args[3])).toEqual(['reachable', 'successRate'])
+    expect(outcomes.map((o) => o.plan.args[1])).toEqual(['0', '0'])
+  })
+
+  it('still honours an explicit --min-score floor', async () => {
+    const { createPublisher } = await import('../src/publish.ts')
+    const { createMemoryStore } = await import('../src/store.ts')
+    const { loadConfig } = await import('../src/config.ts')
+    const publisher = await createPublisher({
+      chainId: 97,
+      config: loadConfig({ env: {} }),
+      store: createMemoryStore(),
+      reader: {
+        client: {},
+        getAgent: async () => ({ owner: '0x1', agentId: 1n, tokenUri: '', card: null }),
+      } as never,
+      dryRun: true,
+      gasPriceWei: 100_000_000n,
+      minScore: 50,
+      plannerAddress: '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab',
+    })
+    const outcomes = await publisher.publishReputation(record({ score: 10 }))
     const first = outcomes[0]
     expect(first?.status).toBe('skipped')
     if (first?.status === 'skipped') expect(first.reason).toMatch(/min-score/)
@@ -266,7 +293,7 @@ describe('dry run', () => {
     const { createMemoryStore } = await import('../src/store.ts')
     const { loadConfig } = await import('../src/config.ts')
 
-    const publisher = createPublisher({
+    const publisher = await createPublisher({
       chainId: 97,
       config: loadConfig({ env: {} }),
       store: createMemoryStore(),
