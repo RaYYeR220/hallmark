@@ -20,6 +20,14 @@ export type HallmarkDeployment = {
   attestor: `0x${string}`
   /** $U, the escrow's immutable payment token. 18 decimals. */
   paymentToken: `0x${string}`
+  /**
+   * The two transactions that are the whole argument, on the same contract
+   * with the same call: one agent had evidence, one did not.
+   */
+  proofPair: {
+    refused: { hash: `0x${string}`; agentId: number; error: string }
+    settled: { fund: `0x${string}`; complete: `0x${string}`; agentId: number }
+  }
   /** Deployment transactions, so every address on /proof is clickable. */
   deployTx: { label: string; hash: `0x${string}` }[]
   deployBlock: number
@@ -37,29 +45,41 @@ export type HallmarkDeployment = {
 
 const TESTNET_DEPLOYMENT: HallmarkDeployment = {
   chainId: 97,
-  commerce: '0x3b1069ebaa1422038d5596a27c7B4a8ED4404d5C',
-  hook: '0xbD79F8d38EBBf2C8cA9a40D27af04a05BD91eFf0',
+  commerce: '0x6a2E5EF3255CBbA23D66EF74a731be4605204638',
+  hook: '0xcD71a680cAFb5aC1d269B5B6A90Fa0198ad78897',
   attestor: '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab',
   paymentToken: '0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565',
+  proofPair: {
+    refused: {
+      hash: '0x8c8c0ce24880bb4dfc0491fab9ab54e141252589755dd04db5eecfb1003a6270',
+      agentId: 2000,
+      error: 'NoFreshEvidence(2000, 0)',
+    },
+    settled: {
+      fund: '0xc55ccf99b175d6ecac21f5a601f6305542139260ed222453080a34a90fa35fe9',
+      complete: '0xf03c3873d268197d6f405c87e2d6bbfd62d1faec1130583a7391013a643989e1',
+      agentId: 2210,
+    },
+  },
   deployTx: [
     {
       label: 'Deploy AgenticCommerceHooked',
-      hash: '0xae07d7119883ab34419931fe1a1b3d8372ff4dba0239db43827c06a061492858',
+      hash: '0x0fb9211f39cc2ee5b52c1d443c8f40d3fb86ed5794788542dd988f8f8adea229',
     },
     {
       label: 'Deploy HallmarkHook',
-      hash: '0x97a8cfab9522989c3b06cb2a06d4e28895dca1943dfee950fa5b40afeeba6421',
+      hash: '0x3b9c87e01fe0265c5c4afe9d207f59b99abb62d4fdd86a284141f5cbeab86d8c',
     },
     {
       label: 'Allow-list the hook on the escrow',
-      hash: '0x23cc9d7e39e25af8e410face4a51c478e32afe62e19fe531c052fb6f83954d67',
+      hash: '0x9b7abcf4f812fec3418e8cb74500e66532e690578c22398ca967dd4d5384e411',
     },
     {
       label: 'Set the evidence base URI',
-      hash: '0x043d94ffba5ca73aadb208ce0b047379de02528c96f83fde20e4ab494c8dbff3',
+      hash: '0xb5e338062125acf51af17e310aeba9335723467e5e5a8f1f90f5c0a06b2b5970',
     },
   ],
-  deployBlock: 129_626_606,
+  deployBlock: 129_659_353,
   ownAgentIds: [2210],
 }
 

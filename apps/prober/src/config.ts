@@ -67,7 +67,7 @@ export type ProberConfig = {
 }
 
 /** Deployed on BSC testnet; mainnet is set through `HALLMARK_HOOK_56`. */
-export const DEFAULT_HOOK_97 = '0xc240452ef94071Df0c6740Dd3c86aeb0Ca374798'
+export const DEFAULT_HOOK_97 = '0xcD71a680cAFb5aC1d269B5B6A90Fa0198ad78897'
 
 /**
  * Evidence bundles are served by the marketplace app, not by the prober, so

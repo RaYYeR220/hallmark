@@ -272,6 +272,22 @@ async function verifyEndpoints(
       })
       const body = await res.text()
       const looksJson = body.trimStart().startsWith('{')
+
+      // A 402 is the correct answer from an unpaid x402 endpoint, not a
+      // failure: the challenge in the payment-required header is the proof the
+      // endpoint works. Treating it as unreachable is the same conflation that
+      // makes most of the registry look dead to a naive prober, and it would
+      // have refused to register five agents that answer perfectly well.
+      if (res.status === 402) {
+        const challenge = res.headers.get('payment-required') ?? res.headers.get('x-payment')
+        out.push({
+          name: service.name,
+          ok: challenge !== null,
+          detail: challenge === null ? 'HTTP 402 with no challenge header' : 'HTTP 402, challenge present',
+        })
+        continue
+      }
+
       out.push({
         name: service.name,
         ok: res.ok && looksJson,
