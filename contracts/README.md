@@ -10,9 +10,14 @@ The difference from every other listing site is one line of policy:
 And the mirror of it, on the way out:
 
 > **On settlement the hook writes the outcome into the ERC-8004 Reputation Registry, so a rating always
-> corresponds to a real, settled job.**
+> corresponds to a real, settled, arm's-length job against the agent that was actually paid.**
 
 A directory can be stale. An escrow that refuses to open cannot.
+
+That second claim is narrower than it used to be, deliberately. A pre-mainnet audit
+([`AUDIT.md`](./AUDIT.md)) found that nothing tied the agent id a client declared to the party the job
+paid, so anyone could write reputation about any agent for the price of gas. Both the binding and the
+self-dealing rules below exist because of that finding.
 
 ---
 
@@ -39,7 +44,12 @@ evaluator settles or cancels.
 
 - Payment token is immutable, set at construction.
 - Platform fee in basis points, charged **only** on `complete`, capped at `MAX_FEE_BPS` (1000 = 10%).
-  A refund never pays a fee.
+  A refund never pays a fee. The rate is **snapshotted into the job at `fund`**, so a provider who
+  accepted work at 2.5% cannot be settled at 10% because the owner moved the number mid-flight.
+- **Delivering buys the evaluator a guaranteed window.** `submit` sets
+  `evaluationDeadline = max(expiredAt, now) + EVALUATION_WINDOW` (3 days), and `claimRefund` refuses a
+  `Submitted` job until it passes. Without this, `claimRefund` and `complete` race at `expiredAt` and
+  the client wins by front-running — taking the escrow back after receiving the work.
 - Every hookable transition — `setProvider`, `setBudget`, `fund`, `submit`, `complete`, `reject` — is
   announced to the job's hook before and after it is applied, and only when `job.hook != address(0)`.
 - **`claimRefund` is not hookable.** Past `expiredAt` anyone can return the escrow to the client, no
@@ -53,9 +63,9 @@ evaluator settles or cancels.
 The `IACPHook` that makes hiring evidence-gated. Two halves.
 
 **The refusal.** `beforeAction(fund)` decodes the agent id the client declared in `optParams`, checks
-the agent exists in the Identity Registry, then demands recent proof of life. If there is none, the
-call reverts with `NoFreshEvidence(agentId, lastEvidenceAt)` and not a single token leaves the
-client's wallet.
+the agent exists in the Identity Registry, requires that agent to be **the party this job pays**, and
+then demands recent proof of life. If any of that fails, not a single token leaves the client's
+wallet.
 
 **The receipt.** `afterAction(complete)` writes `giveFeedback(agentId, 100, 0, "jobcompleted",
 "hallmark", …)`; `afterAction(reject)` writes the same shape with value `0` and tag `"jobrejected"`.
@@ -80,30 +90,68 @@ minimal, documented, `^0.8.24`.
 `fund` is refused unless **all** of the following hold:
 
 1. `optParams` is non-empty and decodes to a `uint256` agent id — else `AgentNotDeclared()`.
-2. `identity.ownerOf(agentId)` does not revert and is non-zero — else `UnknownAgent(agentId)`.
-3. At least one of these two evidence paths is satisfied — else `NoFreshEvidence(agentId, lastEvidenceAt)`:
+2. `identity.ownerOf(agentId)` answers, and is non-zero — else `UnknownAgent(agentId)`.
+3. **The agent is the party this job pays.** `getAgentWallet(agentId)`, falling back to
+   `ownerOf(agentId)` when no wallet is declared, must equal `job.provider` — else
+   `AgentProviderMismatch(agentId, expected, provider)`. This is what makes a rating mean something:
+   you can only move the reputation of an agent you actually paid.
+4. At least one of these two evidence paths is satisfied — else `NoFreshEvidence(agentId, lastEvidenceAt)`:
 
-   **(a) Validation Registry.** A record for this agent written by `attestor`, whose `lastUpdate` is
-   within `maxEvidenceAge` and whose `response` is at least `minValidationScore`. The scan walks back
-   over at most `VALIDATION_SCAN_LIMIT` (8) records so `fund` stays gas-bounded.
+   **(a) Probe — the primary path, O(1).** `lastProbeAt[agentId]` within `maxEvidenceAge`, with
+   `lastProbeScore[agentId] >= minValidationScore`, and the probe signed by the *current* attestor. A
+   single storage read: no external call, nothing to starve.
 
-   **(b) Probe + Reputation Registry.** `lastProbeAt[agentId]` within `maxEvidenceAge` with
-   `lastProbeScore[agentId] >= minValidationScore`, **and** a
-   `getSummary(agentId, [attestor], "reachable", "")` returning `count > 0` and `summaryValue > 0`.
+   **(b) Validation Registry — the fallback, O(history).** A record for this agent written by
+   `attestor`, tagged `"liveness"` or `"reachable"`, whose `lastUpdate` is within `maxEvidenceAge` and
+   whose `response` is at least `minValidationScore`. Floored, stipended, and allowed to refuse — see
+   the gas section.
 
 Defaults: `maxEvidenceAge = 24 hours`, `minValidationScore = 50`. Both owner-settable.
+
+### What a settled job has to look like to earn an attestation
+
+Passing the gate gets the escrow open. Earning an ERC-8004 entry takes more. On settlement the hook
+writes nothing, and says why, when:
+
+- **The job is self-dealt** — the client is the agent's payee or owner, or the evaluator is the party
+  being paid. Emits `FeedbackSkippedSelfDealt`.
+- **The budget is below `minAttestableBudget`** (default 0.1 $U, owner-settable, zero disables). A
+  one-wei job is not evidence of anything. Emits `FeedbackSkippedBudgetTooSmall`.
+
+Both verdicts are decided at `fund` and cached, so the settlement path takes on no extra registry
+reads and the rules that applied are the ones in force when the money moved.
+
+**Neither case increments `jobsCompleted` or `jobsRejected`** either. `agentRecord` is what the
+marketplace ranks on; if it counted jobs that earned no attestation it would just be a second, cheaper
+reputation channel with the forgery property we removed from the first. `jobsFunded` still increments,
+because it is a fact about escrow rather than a claim about quality — and the gap between it and the
+settled counters is a visible signal that someone is running jobs that do not qualify.
+
+**The honest limit.** An attacker with three unrelated keys — client, agent owner, agent wallet —
+passes every relationship check, because nothing on-chain tells two strangers from one person with two
+wallets. That case is *priced*, not detected: a forged attestation costs a real escrowed budget plus
+the platform fee. The relationship rules remove the free path; the budget floor removes the cheap one.
 
 ### Why Hallmark keeps its own clock
 
 The Reputation Registry exposes no timestamp. `getSummary` returns a count and an aggregate and
 nothing about *when* those entries were written — a ten-month-old `"reachable"` feedback and a
 ten-minute-old one are indistinguishable through the standard interface. So `recordProbe(agentId,
-score)`, callable only by the `attestor`, is the authoritative freshness clock, and the registry
-entry is the public, standard-visible mirror of the same observation. The registry says *what* was
-observed; the hook says *when*.
+score)`, callable only by the `attestor`, is the authoritative freshness clock. The registry says
+*what* was observed; the hook says *when*.
 
-The Validation Registry does expose `lastUpdate`, so path (a) is self-timestamping and needs no
-mirror.
+The Validation Registry does expose `lastUpdate`, so the fallback path is self-timestamping.
+
+**The registry mirror is no longer part of the gate.** The prober still writes a `"reachable"` entry
+per agent, and `hasRegistryMirror(agentId)` reports it — but as an **off-chain read only**.
+`getSummary` walks every entry the attestor ever wrote for that agent: 21k gas at one entry, 1.31M at
+four hundred. Leaving it on the funding path meant our own uptime was what would eventually starve our
+own gate. It was removed rather than merely floored because it was never a trust control — the same
+attestor key writes both the mirror and the probe, so requiring both proves nothing the probe alone
+does not. Visibility belongs in an `eth_call`; trust belongs in the O(1) storage slot.
+
+A probe also records **which** attestor key signed it, and stops counting the moment that key is
+rotated out. A rotation happens precisely because trust in a key ended.
 
 ### One thing worth stating plainly
 
@@ -157,11 +205,25 @@ Two mitigations are in the contract, and one limitation stays:
   make the failure loud. Send the gas limit.
 
 The funding gate takes the same problem and answers it in the opposite direction, on purpose. Its
-evidence reads are also wrapped in `try/catch`, so a starved read would degrade to "no evidence" and
-refuse a perfectly live agent. Before money moves, the safe answer to "I could not evaluate this" is
-to refuse, so `fund` reverts with `InsufficientGasForEvidenceCheck(gasLeft, required)` below
-`MIN_EVIDENCE_GAS` (150,000) instead of guessing. Reverting also keeps `eth_estimateGas` honest there:
-the estimator raises the limit until the gate has room to actually run.
+evidence reads are wrapped so a starved read would otherwise degrade to "no evidence" and refuse a
+perfectly live agent. Before money moves, the safe answer to "I could not evaluate this" is to refuse,
+so the gate reverts rather than guessing. Reverting also keeps `eth_estimateGas` honest there: the
+estimator raises the limit until the gate has room to actually run.
+
+Concretely, on the gate side:
+
+- every registry read checks `gasleft()` against a floor sized for **that call**, immediately before
+  making it — one global check at entry cannot size costs that differ per call, and cannot see what
+  earlier calls already spent;
+- every read gets an explicit stipend, so the 63/64 rule cannot deliver less than the floor promised;
+- a read that fails anyway is **indeterminate, not negative**: `EvidenceReadFailed(agentId)` or
+  `InsufficientGasForEvidenceCheck(gasLeft, required)`, never `NoFreshEvidence`;
+- the hook reads the escrow through `getJobParties`, a fixed-width accessor, rather than `getJob` —
+  which returns the client-supplied `description`, and would otherwise hand the client control of the
+  gate's gas cost.
+
+`AuditPoCTest.test_Fixed_F04_GateNeverLiesUnderAnyGasLimit` sweeps a live agent behind a large history
+from 300k to 3M gas and asserts the gate never once answers `NoFreshEvidence`.
 
 **After settlement is final, fail quietly and say so. Before money moves, refuse loudly.**
 
@@ -213,7 +275,7 @@ Then:
 
 ```bash
 forge build
-forge test              # 171 tests
+forge test              # 227 tests
 forge test -vv
 forge fmt
 forge coverage
@@ -256,13 +318,15 @@ forge script script/Deploy.s.sol:Deploy --chain 97
 
 ## Tests
 
-171 passing tests across four suites.
+227 passing tests across six suites.
 
 | Suite | Tests | Covers |
 |---|---|---|
-| `AgenticCommerceHookedTest` | 78 | ERC-8183 state machine, authorisation, fee maths, hook call contract, reentrancy, fuzz |
-| `HallmarkHookAdminTest` | 50 | Access control, selector routing, configuration, view surface |
-| `HallmarkHookTest` | 40 | The evidence gate, the settlement receipt, and the gas budgeting around both |
+| `AgenticCommerceHookedTest` | 80 | ERC-8183 state machine, authorisation, fee maths, hook call contract, reentrancy, fuzz |
+| `HallmarkHookAdminTest` | 65 | Access control, selector routing, configuration, agent binding, view surface |
+| `HallmarkHookTest` | 46 | The evidence gate, the settlement receipt, and the gas budgeting around both |
+| `AuditPoCTest` | 26 | Adversarial proofs-of-concept from the pre-mainnet audit, each now asserting the attack fails |
+| `HookedInvariantTest` | 7 | Invariants with the real hook attached, plus deterministic handler drive tests |
 | `EscrowInvariantTest` | 3 | Escrow accounting invariants under randomised action sequences |
 
 The ones that carry the pitch:
@@ -281,6 +345,12 @@ The ones that carry the pitch:
   is load-bearing: set `FEEDBACK_EPILOGUE_RESERVE` to zero and the test fails.
 - `test_Fund_RevertsWhenGasIsInsufficientForEvidenceCheck` — a gate that cannot read its evidence
   refuses rather than guessing.
+- `test_PoC_F01_NegativeFeedbackForgedAgainstAThirdPartyAgent` — the audit's headline attack, now
+  reverting.
+- `test_Fixed_F04_GateNeverLiesUnderAnyGasLimit` — the gate never returns a false negative, at any
+  gas limit, behind any history.
+- `invariant_HookedFeedbackIsBackedByEscrow` — every ERC-8004 entry the hook wrote is backed by a job
+  actually funded against that agent.
 
 Registries are mocked in `test/mocks/` and mirror the real behaviour that matters: the Identity
 Registry reverts on an unregistered agent, the Validation Registry stamps `lastUpdate` on every
@@ -300,3 +370,18 @@ Two errors are added beyond the standard's list, both needed by functions the st
 
 `MIN_JOB_DURATION` is set to 1 hour; the standard requires `ExpiryTooShort` but leaves the threshold
 to the implementation.
+
+Audit remediation added two more, both on functions the standard specifies:
+
+- `EvaluationWindowOpen(uint256 jobId, uint256 deadline)` — `claimRefund` on a delivered job before
+  the evaluator's window closes.
+- `getJobParties` — a non-standard, fixed-width companion to `getJob`, declared in
+  `src/interfaces/IJobParties.sol` rather than in the ERC-8183 interface, so the standard interface
+  stays exactly the standard.
+
+## Security
+
+[`AUDIT.md`](./AUDIT.md) is the full pre-mainnet review: findings, proofs-of-concept, what was fixed
+and what is accepted risk. Two items are deployment-time actions and are **not** done: move both
+owners to a multisig with a timelock (M-5), and fix the push-transfer exit paths before using a
+payment token that can blacklist (M-4).

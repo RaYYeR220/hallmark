@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {IAgenticCommerce} from "./interfaces/IAgenticCommerce.sol";
+import {IJobParties} from "./interfaces/IJobParties.sol";
 import {IACPHook} from "./interfaces/IACPHook.sol";
 
 /// @title AgenticCommerceHooked
@@ -26,7 +27,7 @@ import {IACPHook} from "./interfaces/IACPHook.sol";
 ///        `MAX_FEE_BPS`.
 ///      - Hooks must be allow-listed by the owner before a job can reference them, because a hook is
 ///        an arbitrary callee invoked inside the escrow's own call frame.
-contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
+contract AgenticCommerceHooked is IAgenticCommerce, IJobParties, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @notice Basis-point denominator.
@@ -37,6 +38,17 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
 
     /// @notice Minimum lifetime of a job at creation time.
     uint256 public constant MIN_JOB_DURATION = 1 hours;
+
+    /// @notice How long a delivered job is protected from a permissionless refund.
+    /// @dev A provider who has submitted has done the work; the deliverable is on-chain and the
+    ///      evaluator's decision is the only thing outstanding. Without this, `claimRefund` and
+    ///      `complete` race at `expiredAt` and the client always wins by front-running, taking the
+    ///      escrow back after receiving the work. Submitting therefore pushes the refund out to
+    ///      `max(expiredAt, submittedAt) + EVALUATION_WINDOW`, giving the evaluator a window that
+    ///      exists however early the work arrived.
+    ///      It is a constant rather than an admin lever: the owner already holds a lot of power over
+    ///      live jobs, and this one protects the party with the least of it.
+    uint256 public constant EVALUATION_WINDOW = 3 days;
 
     /// @notice ERC-20 token every job is denominated and settled in.
     IERC20 public immutable paymentToken;
@@ -52,6 +64,16 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
 
     mapping(uint256 jobId => Job job) private _jobs;
 
+    /// @notice Platform fee, in basis points, fixed for a job at the moment its escrow was funded.
+    /// @dev Snapshotted rather than read live at settlement. The fee is a term of the deal, and a
+    ///      provider who accepted work at 2.5% must not be settled at 10% because the owner moved
+    ///      the number while the job was in flight.
+    mapping(uint256 jobId => uint16 feeBps) public jobFeeBps;
+
+    /// @notice Earliest time a delivered job's escrow may be refunded permissionlessly.
+    /// @dev Zero until `submit`. See `EVALUATION_WINDOW`.
+    mapping(uint256 jobId => uint256 deadline) public evaluationDeadline;
+
     /// @notice Hooks the owner has approved for use by new jobs.
     mapping(address hook => bool allowed) public isHookWhitelisted;
 
@@ -61,9 +83,13 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
     /// @notice The job's `expiredAt` has not been reached yet.
     error NotYetExpired();
 
+    /// @notice The job has been delivered and the evaluator's window has not closed yet.
+    error EvaluationWindowOpen(uint256 jobId, uint256 deadline);
+
     event TreasuryUpdated(address indexed treasury);
     event PlatformFeeUpdated(uint16 feeBps);
     event HookWhitelisted(address indexed hook, bool allowed);
+    event EvaluationDeadlineSet(uint256 indexed jobId, uint256 deadline);
 
     /// @param paymentToken_ ERC-20 token used for every job.
     /// @param treasury_ Recipient of platform fees.
@@ -157,6 +183,8 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
         _before(job.hook, jobId, IAgenticCommerce.fund.selector, optParams);
 
         job.status = JobStatus.Funded;
+        // Fix the fee for this job now, at the price the client agreed to when it escrowed.
+        jobFeeBps[jobId] = feeBps;
         paymentToken.safeTransferFrom(msg.sender, address(this), amount);
         emit JobFunded(jobId, msg.sender, amount);
 
@@ -173,7 +201,16 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
         _before(job.hook, jobId, IAgenticCommerce.submit.selector, payload);
 
         job.status = JobStatus.Submitted;
+
+        // Delivering buys the evaluator a full window beyond the job's own expiry, whenever the
+        // work arrived. Anchoring on `expiredAt` rather than on the submission time is what stops a
+        // client who was handed the work on day one from simply waiting for day seven.
+        uint256 anchor = job.expiredAt > block.timestamp ? job.expiredAt : block.timestamp;
+        uint256 deadline = anchor + EVALUATION_WINDOW;
+        evaluationDeadline[jobId] = deadline;
+
         emit JobSubmitted(jobId, msg.sender, deliverable);
+        emit EvaluationDeadlineSet(jobId, deadline);
 
         _after(job.hook, jobId, IAgenticCommerce.submit.selector, payload);
     }
@@ -188,7 +225,7 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
         _before(job.hook, jobId, IAgenticCommerce.complete.selector, payload);
 
         uint256 amount = job.budget;
-        uint256 fee = (amount * feeBps) / BPS_DENOMINATOR;
+        uint256 fee = (amount * jobFeeBps[jobId]) / BPS_DENOMINATOR;
         uint256 payout = amount - fee;
 
         job.status = JobStatus.Completed;
@@ -240,7 +277,15 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
         Job storage job = _job(jobId);
         JobStatus status = job.status;
         if (status != JobStatus.Funded && status != JobStatus.Submitted) revert WrongStatus();
-        if (block.timestamp < job.expiredAt) revert NotYetExpired();
+
+        if (status == JobStatus.Submitted) {
+            // The work is delivered. The client does not get to take the escrow back by
+            // front-running an evaluator who is merely slow.
+            uint256 deadline = evaluationDeadline[jobId];
+            if (block.timestamp < deadline) revert EvaluationWindowOpen(jobId, deadline);
+        } else if (block.timestamp < job.expiredAt) {
+            revert NotYetExpired();
+        }
 
         job.status = JobStatus.Expired;
 
@@ -260,6 +305,26 @@ contract AgenticCommerceHooked is IAgenticCommerce, Ownable, ReentrancyGuard {
     function getJob(uint256 jobId) external view returns (Job memory) {
         if (jobId == 0 || jobId > jobCount) revert InvalidJob();
         return _jobs[jobId];
+    }
+
+    /// @inheritdoc IJobParties
+    /// @dev Constant gas: deliberately omits `description`, whose length the client chooses. A hook
+    ///      reading this during `fund` must not inherit a client-controlled cost on a money path.
+    function getJobParties(uint256 jobId)
+        external
+        view
+        returns (
+            address client,
+            address provider,
+            address evaluator,
+            uint256 budget,
+            uint256 expiredAt,
+            JobStatus status
+        )
+    {
+        if (jobId == 0 || jobId > jobCount) revert InvalidJob();
+        Job storage job = _jobs[jobId];
+        return (job.client, job.provider, job.evaluator, job.budget, job.expiredAt, job.status);
     }
 
     /// @notice Total escrow the contract is currently obliged to hold, i.e. the sum of the budgets

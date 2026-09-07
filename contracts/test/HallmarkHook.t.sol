@@ -8,6 +8,7 @@ import {HallmarkHook} from "../src/HallmarkHook.sol";
 import {IAgenticCommerce} from "../src/interfaces/IAgenticCommerce.sol";
 import {GasBurningReputationRegistry} from "./mocks/GasBurningReputationRegistry.sol";
 import {MockReputationRegistry} from "./mocks/MockReputationRegistry.sol";
+import {ReturnBombReputationRegistry} from "./mocks/ReturnBombReputationRegistry.sol";
 
 /// @notice The product test: money cannot move toward an agent without fresh liveness evidence, and
 ///         every settled job leaves an on-chain receipt in the ERC-8004 Reputation Registry.
@@ -106,16 +107,25 @@ contract HallmarkHookTest is Base {
         commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
     }
 
-    function test_Fund_RevertsWhenProbeHasNoRegistryMirror() public {
-        // The Hallmark clock is set but the public "reachable" feedback was never written, so the
-        // evidence is not verifiable through the standard registry.
+    /// @dev The registry mirror used to be a gate condition. It is not any more, and deliberately
+    ///      so: `getSummary` is O(the prober's own history), which made our own attestor the thing
+    ///      that eventually starved the gate. The mirror was never a trust control either — the same
+    ///      attestor key writes both it and the probe — so it moved to `hasRegistryMirror`, an
+    ///      off-chain read where an unbounded scan is free.
+    function test_Fund_SucceedsOnAProbeWithNoRegistryMirrorYet() public {
         _probeWithoutMirror(AGENT_ID, 95);
-        uint64 probedAt = uint64(block.timestamp);
 
         uint256 jobId = _createAndBudget(address(hook), BUDGET);
         vm.prank(client);
-        vm.expectRevert(abi.encodeWithSelector(HallmarkHook.NoFreshEvidence.selector, AGENT_ID, probedAt));
         commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
+
+        assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Funded));
+        assertFalse(hook.hasRegistryMirror(AGENT_ID), "the corroboration is still reported honestly");
+    }
+
+    function test_HasRegistryMirror_TrueOnceTheProberMirrors() public {
+        _probe(AGENT_ID, 95);
+        assertTrue(hook.hasRegistryMirror(AGENT_ID));
     }
 
     function test_Fund_SucceedsOnValidationRegistryEvidenceAlone() public {
@@ -150,16 +160,28 @@ contract HallmarkHookTest is Base {
         assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Funded));
     }
 
-    function test_Fund_RefusesWhenBothRegistriesRevert() public {
+    /// @dev With both registries down, a probed agent is still fundable: the primary evidence lives
+    ///      in this contract's own storage and needs no external read at all.
+    function test_Fund_SurvivesBothRegistriesBeingDown() public {
         _probe(AGENT_ID, 70);
         validation.setRevertOnRead(true);
         reputation.setRevertOnSummary(true);
 
         uint256 jobId = _createAndBudget(address(hook), BUDGET);
         vm.prank(client);
-        vm.expectRevert(
-            abi.encodeWithSelector(HallmarkHook.NoFreshEvidence.selector, AGENT_ID, uint64(block.timestamp))
-        );
+        commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
+
+        assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Funded));
+    }
+
+    /// @dev But an unprobed agent whose only possible evidence is a registry that will not answer is
+    ///      indeterminate, and the gate must say so rather than call it "no evidence".
+    function test_Fund_RevertsEvidenceReadFailedWhenTheValidationRegistryIsDown() public {
+        validation.setRevertOnRead(true);
+
+        uint256 jobId = _createAndBudget(address(hook), BUDGET);
+        vm.prank(client);
+        vm.expectRevert(abi.encodeWithSelector(HallmarkHook.EvidenceReadFailed.selector, AGENT_ID));
         commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
     }
 
@@ -170,16 +192,15 @@ contract HallmarkHookTest is Base {
 
         uint256 jobId = _createAndBudget(address(hook), BUDGET);
         vm.prank(client);
-        vm.expectRevert(
-            abi.encodeWithSelector(HallmarkHook.NoFreshEvidence.selector, AGENT_ID, uint64(block.timestamp))
-        );
+        // A probe signed by a rotated-out key is not evidence, so nothing fresh remains.
+        vm.expectRevert(abi.encodeWithSelector(HallmarkHook.NoFreshEvidence.selector, AGENT_ID, 0));
         commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
     }
 
     function testFuzz_Fund_RefusesEveryUnprobedAgent(uint256 agentId) public {
         agentId = bound(agentId, 1, type(uint128).max);
         vm.assume(agentId != AGENT_ID);
-        identity.register(agentId, agentOwner);
+        _registerAgent(agentId, provider);
 
         uint256 jobId = _createAndBudget(address(hook), BUDGET);
         vm.prank(client);
@@ -582,19 +603,118 @@ contract HallmarkHookTest is Base {
         assertTrue(_sawEvent(vm.getRecordedLogs(), _FAILED_TOPIC, jobId), "the failure is reported, not swallowed");
     }
 
-    function test_EvidenceGasFloor_CoversAFullyLoadedGateRead() public {
-        // Worst case the gate can reach: a full scan window of validation records plus the
-        // reputation summary.
+    /// @dev The probe path is a single storage read, so the floor that matters is the one guarding
+    ///      the O(history) branch. Measured with no probe at all, so the validation read is actually
+    ///      taken, and against a full scan window.
+    function test_EvidenceGasFloor_CoversAFullyLoadedValidationRead() public {
         for (uint256 i = 0; i < hook.VALIDATION_SCAN_LIMIT(); ++i) {
             _validate(attestor, AGENT_ID, 90);
         }
-        _probe(AGENT_ID, 95);
 
         uint256 before = gasleft();
-        hook.isHireable(AGENT_ID);
+        (bool ok,,) = hook.isHireable(AGENT_ID);
         uint256 used = before - gasleft();
 
-        assertLt(used, hook.MIN_EVIDENCE_GAS(), "the floor covers a fully loaded evidence read");
+        assertTrue(ok, "the validation branch carried the decision");
+        assertLt(used, hook.MIN_VALIDATION_READ_GAS(), "the floor covers a full scan window");
+    }
+
+    /// @dev And the primary path is genuinely O(1): a probe answers without touching a registry.
+    function test_ProbePath_IsCheapAndTouchesNoRegistry() public {
+        _probe(AGENT_ID, 95);
+        validation.setRevertOnRead(true);
+        reputation.setRevertOnSummary(true);
+
+        uint256 before = gasleft();
+        (bool ok,,) = hook.isHireable(AGENT_ID);
+        uint256 used = before - gasleft();
+
+        assertTrue(ok);
+        assertLt(used, 20_000, "the gate's primary evidence is a storage read, not a registry call");
+    }
+
+    /// @dev Regression cover for a bug found in the pre-mainnet self-audit, and the third instance of
+    ///      the family the two BSC-testnet bugs belonged to. A registry that burns its stipend and
+    ///      then reverts with a large blob used to run the hook out of gas inside its own `catch`,
+    ///      because `catch (bytes memory err)` copies all of `returndatasize()` and then pays 8 gas
+    ///      per byte to log it — both out of the 20,000-gas epilogue reserve. The registry chose the
+    ///      blob size, so no caller-supplied gas limit could win. Settlement is now insulated by a
+    ///      bounded return-data copy.
+    function test_Complete_SurvivesARegistryThatRevertsWithAReturnDataBomb() public {
+        (HallmarkHook bombHook, uint256 jobId) = _bombFixture(100_000);
+
+        vm.recordLogs();
+        vm.prank(evaluator);
+        commerce.complete{gas: 2_000_000}(jobId, keccak256("ok"), "");
+
+        uint256 fee = (BUDGET * FEE_BPS) / commerce.BPS_DENOMINATOR();
+        assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Completed), "settlement is final");
+        assertEq(token.balanceOf(provider), BUDGET - fee, "provider still paid");
+        assertEq(token.balanceOf(address(commerce)), 0, "escrow drained");
+        assertEq(bombHook.agentRecord(AGENT_ID).jobsCompleted, 1, "the local record still updates");
+        assertTrue(_sawEvent(vm.getRecordedLogs(), _FAILED_TOPIC, jobId), "the failure is reported, not swallowed");
+    }
+
+    /// @dev The blob size is the registry's choice, so the defence has to hold for any of them.
+    function test_Complete_SurvivesAReturnDataBombOfAnySize() public {
+        uint256[4] memory sizes = [uint256(1_000), 100_000, 400_000, 1_000_000];
+        for (uint256 i = 0; i < sizes.length; ++i) {
+            (, uint256 jobId) = _bombFixture(sizes[i]);
+            vm.prank(evaluator);
+            commerce.complete{gas: 2_000_000}(jobId, bytes32(0), "");
+            assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Completed));
+        }
+    }
+
+    /// @dev `reject` runs the same epilogue, so it needs the same cover.
+    function test_Reject_SurvivesARegistryThatRevertsWithAReturnDataBomb() public {
+        (, uint256 jobId) = _bombFixture(200_000);
+        uint256 clientBefore = token.balanceOf(client);
+
+        vm.prank(evaluator);
+        commerce.reject{gas: 2_000_000}(jobId, keccak256("no"), "");
+
+        assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Rejected));
+        assertEq(token.balanceOf(client), clientBefore + BUDGET, "the refund still happens");
+    }
+
+    /// @dev Whatever the blob, the hook logs at most `MAX_FEEDBACK_ERROR_BYTES` of it, so the epilogue
+    ///      cost is a constant the reserve can cover rather than something the registry picks.
+    function test_FeedbackWriteFailed_ErrorDataIsBounded() public {
+        (, uint256 jobId) = _bombFixture(500_000);
+
+        vm.recordLogs();
+        vm.prank(evaluator);
+        commerce.complete{gas: 2_000_000}(jobId, bytes32(0), "");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length != 0 && logs[i].topics[0] == _FAILED_TOPIC) {
+                bytes memory reported = abi.decode(logs[i].data, (bytes));
+                assertLe(reported.length, hook.MAX_FEEDBACK_ERROR_BYTES(), "revert data is truncated, not copied whole");
+                return;
+            }
+        }
+        revert("FeedbackWriteFailed was never emitted");
+    }
+
+    function _bombFixture(uint256 bombBytes) private returns (HallmarkHook bombHook, uint256 jobId) {
+        ReturnBombReputationRegistry bomb = new ReturnBombReputationRegistry(bombBytes);
+        bombHook = new HallmarkHook(address(commerce), address(identity), address(bomb), address(validation), attestor);
+        commerce.setHookWhitelisted(address(bombHook), true);
+        bombHook.setEvidenceBaseURI("https://hallmark.market/evidence/");
+
+        vm.prank(attestor);
+        bombHook.recordProbe(AGENT_ID, 95);
+
+        vm.startPrank(client);
+        jobId = commerce.createJob(provider, evaluator, block.timestamp + JOB_DURATION, "bomb", address(bombHook));
+        commerce.setBudget(jobId, BUDGET, "");
+        commerce.fund(jobId, BUDGET, abi.encode(AGENT_ID));
+        vm.stopPrank();
+
+        vm.prank(provider);
+        commerce.submit(jobId, bytes32(0), "");
     }
 
     // ---------------------------------------------------------------------
@@ -609,7 +729,7 @@ contract HallmarkHookTest is Base {
         commerce.claimRefund(jobId);
 
         vm.expectEmit(true, true, false, false, address(hook));
-        emit HallmarkHook.ExpiryRecorded(jobId, AGENT_ID);
+        emit HallmarkHook.ExpiryRecorded(jobId, AGENT_ID, false);
         vm.prank(stranger);
         hook.recordExpiry(jobId);
 

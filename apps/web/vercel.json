@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "pnpm install --filter @hallmark/web... --frozen-lockfile=false",
+  "buildCommand": "pnpm -F @hallmark/core -F @hallmark/altana build && pnpm -F @hallmark/web build"
+}

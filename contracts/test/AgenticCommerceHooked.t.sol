@@ -508,14 +508,36 @@ contract AgenticCommerceHookedTest is Base {
         assertEq(uint8(_status(jobId)), uint8(IAgenticCommerce.JobStatus.Expired));
     }
 
-    function test_ClaimRefund_WorksFromSubmittedState() public {
+    function test_ClaimRefund_WorksFromSubmittedStateOnceTheEvaluationWindowCloses() public {
         uint256 before = token.balanceOf(client);
         uint256 jobId = _fundAndSubmit(BUDGET);
 
-        vm.warp(block.timestamp + JOB_DURATION + 1);
+        vm.warp(commerce.evaluationDeadline(jobId));
         commerce.claimRefund(jobId);
 
         assertEq(token.balanceOf(client), before);
+    }
+
+    function test_ClaimRefund_RefusedWhileTheEvaluationWindowIsOpen() public {
+        uint256 jobId = _fundAndSubmit(BUDGET);
+        uint256 deadline = commerce.evaluationDeadline(jobId);
+        assertEq(deadline, commerce.getJob(jobId).expiredAt + commerce.EVALUATION_WINDOW());
+
+        vm.warp(deadline - 1);
+        vm.expectRevert(abi.encodeWithSelector(AgenticCommerceHooked.EvaluationWindowOpen.selector, jobId, deadline));
+        commerce.claimRefund(jobId);
+    }
+
+    function test_Submit_SetsTheEvaluationDeadline() public {
+        uint256 jobId = _createAndBudget(address(0), BUDGET);
+        vm.prank(client);
+        commerce.fund(jobId, BUDGET, "");
+
+        uint256 expiredAt = commerce.getJob(jobId).expiredAt;
+        vm.expectEmit(true, false, false, true, address(commerce));
+        emit AgenticCommerceHooked.EvaluationDeadlineSet(jobId, expiredAt + commerce.EVALUATION_WINDOW());
+        vm.prank(provider);
+        commerce.submit(jobId, bytes32(0), "");
     }
 
     function test_ClaimRefund_RevertsBeforeExpiry() public {

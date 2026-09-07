@@ -54,11 +54,25 @@ abstract contract Base is Test {
         commerce.setHookWhitelisted(address(hook), true);
         hook.setEvidenceBaseURI("https://hallmark.xyz/evidence/");
 
-        identity.register(AGENT_ID, agentOwner);
+        // The agent's on-chain payee is the address the job actually pays. The gate now requires
+        // that relationship, so the fixture models a correctly onboarded agent: owned by one key,
+        // paid at another.
+        _registerAgent(AGENT_ID, provider);
 
         token.mint(client, 1_000_000e18);
         vm.prank(client);
         token.approve(address(commerce), type(uint256).max);
+    }
+
+    // ---------------------------------------------------------------------
+    // Identity helpers
+    // ---------------------------------------------------------------------
+
+    /// @dev Registers an agent owned by `agentOwner` whose declared wallet — the address a job must
+    ///      pay for the outcome to count as this agent's work — is `payee`.
+    function _registerAgent(uint256 agentId, address payee) internal {
+        identity.register(agentId, agentOwner);
+        identity.setAgentWallet(agentId, payee);
     }
 
     // ---------------------------------------------------------------------

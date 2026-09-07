@@ -24,9 +24,6 @@ const nextConfig: NextConfig = {
     // through next/image, so nothing here needs an allowlist.
     unoptimized: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 }
 
 export default nextConfig

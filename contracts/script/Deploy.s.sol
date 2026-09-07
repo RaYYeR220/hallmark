@@ -18,6 +18,8 @@ import {Addresses} from "./Addresses.sol";
 ///      - `FEE_BPS`      optional, defaults to 250 (2.5%), capped at 1000
 ///      - `PAYMENT_TOKEN` optional override; defaults to the $U token for the chain
 ///      - `EVIDENCE_BASE_URI` optional prefix for feedback evidence documents
+///      - `MIN_ATTESTABLE_BUDGET` optional; budget floor below which a settled job earns no ERC-8004
+///        attestation. Defaults to the hook's own 0.1 $U.
 contract Deploy is Script {
     uint16 internal constant DEFAULT_FEE_BPS = 250;
 
@@ -28,6 +30,7 @@ contract Deploy is Script {
         address attestor = vm.envAddress("ATTESTOR");
         uint16 feeBps = uint16(vm.envOr("FEE_BPS", uint256(DEFAULT_FEE_BPS)));
         string memory evidenceBaseURI = vm.envOr("EVIDENCE_BASE_URI", string(""));
+        uint256 minAttestableBudget = vm.envOr("MIN_ATTESTABLE_BUDGET", uint256(0));
 
         Addresses.Registries memory registries = Addresses.registries(chainId);
         address paymentToken = vm.envOr("PAYMENT_TOKEN", Addresses.altana(chainId).paymentToken);
@@ -44,6 +47,7 @@ contract Deploy is Script {
 
         commerce.setHookWhitelisted(address(hook), true);
         if (bytes(evidenceBaseURI).length != 0) hook.setEvidenceBaseURI(evidenceBaseURI);
+        if (minAttestableBudget != 0) hook.setMinAttestableBudget(minAttestableBudget);
 
         vm.stopBroadcast();
 
@@ -55,6 +59,7 @@ contract Deploy is Script {
         console2.log("treasury             :", treasury);
         console2.log("feeBps               :", feeBps);
         console2.log("attestor             :", attestor);
+        console2.log("minAttestableBudget  :", hook.minAttestableBudget());
         console2.log("-- deployed --");
         console2.log("AgenticCommerceHooked:", address(commerce));
         console2.log("HallmarkHook         :", address(hook));

@@ -352,6 +352,193 @@ contract HallmarkHookAdminTest is Base {
         assertEq(hook.feedbackURI(123_456), "https://hallmark.xyz/evidence/123456");
     }
 
+    // ---------------------------------------------------------------------
+    // Agent / payee binding
+    // ---------------------------------------------------------------------
+
+    function test_MinAttestableBudget_DefaultsToATenthOfAToken() public view {
+        assertEq(hook.minAttestableBudget(), 1e17);
+        assertEq(hook.minAttestableBudget(), hook.DEFAULT_MIN_ATTESTABLE_BUDGET());
+    }
+
+    function test_SetMinAttestableBudget_Updates() public {
+        vm.expectEmit(false, false, false, true, address(hook));
+        emit HallmarkHook.MinAttestableBudgetUpdated(5e18);
+        hook.setMinAttestableBudget(5e18);
+        assertEq(hook.minAttestableBudget(), 5e18);
+    }
+
+    function test_SetMinAttestableBudget_OnlyOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        hook.setMinAttestableBudget(5e18);
+    }
+
+    function test_SetMinAttestableBudget_ZeroDisablesTheFloor() public {
+        hook.setMinAttestableBudget(0);
+        _probe(AGENT_ID, 95);
+
+        uint256 jobId = _createAndBudget(address(hook), 1);
+        vm.prank(client);
+        commerce.fund(jobId, 1, abi.encode(AGENT_ID));
+        vm.prank(provider);
+        commerce.submit(jobId, bytes32(0), "");
+        vm.prank(evaluator);
+        commerce.complete(jobId, bytes32(0), "");
+
+        assertEq(hook.agentRecord(AGENT_ID).jobsCompleted, 1, "a one-wei job counts once the floor is off");
+    }
+
+    /// @dev The threshold in force when the escrow was funded is the one that applies, matching how
+    ///      the platform fee is snapshotted.
+    function test_MinAttestableBudget_IsFixedAtFundingTime() public {
+        _probe(AGENT_ID, 95);
+        uint256 jobId = _createAndBudget(address(hook), 1e18);
+        vm.prank(client);
+        commerce.fund(jobId, 1e18, abi.encode(AGENT_ID));
+
+        // Owner raises the bar above this job's budget after it was funded.
+        hook.setMinAttestableBudget(100e18);
+
+        vm.prank(provider);
+        commerce.submit(jobId, bytes32(0), "");
+        vm.prank(evaluator);
+        commerce.complete(jobId, bytes32(0), "");
+
+        assertEq(hook.agentRecord(AGENT_ID).jobsCompleted, 1, "judged under the rules it was funded under");
+    }
+
+    function test_Fund_RevertsWhenTheAgentIsNotTheJobsPayee() public {
+        uint256 otherAgent = 31_337;
+        _registerAgent(otherAgent, stranger);
+        _probe(otherAgent, 95);
+
+        uint256 jobId = _createAndBudget(address(hook), BUDGET);
+        vm.prank(client);
+        vm.expectRevert(
+            abi.encodeWithSelector(HallmarkHook.AgentProviderMismatch.selector, otherAgent, stranger, provider)
+        );
+        commerce.fund(jobId, BUDGET, abi.encode(otherAgent));
+    }
+
+    function test_JobBinding_RecordsTheClientAndVerdict() public {
+        _probe(AGENT_ID, 95);
+        uint256 jobId = _createFundedJob();
+
+        (address boundClient, HallmarkHook.Attestability verdict) = hook.jobBinding(jobId);
+        assertEq(boundClient, client);
+        assertEq(uint8(verdict), uint8(HallmarkHook.Attestability.Attestable));
+    }
+
+    function test_JobBinding_FlagsADustJob() public {
+        _probe(AGENT_ID, 95);
+        uint256 jobId = _createAndBudget(address(hook), 1);
+        vm.prank(client);
+        commerce.fund(jobId, 1, abi.encode(AGENT_ID));
+
+        (, HallmarkHook.Attestability verdict) = hook.jobBinding(jobId);
+        assertEq(uint8(verdict), uint8(HallmarkHook.Attestability.BudgetTooSmall));
+    }
+
+    // ---------------------------------------------------------------------
+    // Probe provenance
+    // ---------------------------------------------------------------------
+
+    function test_AgentProbe_RecordsTheAuthoringKey() public {
+        _probe(AGENT_ID, 77);
+        HallmarkHook.Probe memory probe = hook.agentProbe(AGENT_ID);
+        assertEq(probe.by, attestor);
+        assertEq(probe.score, 77);
+        assertEq(probe.at, uint64(block.timestamp));
+    }
+
+    function test_LastProbe_ReadsZeroAfterAttestorRotation() public {
+        _probe(AGENT_ID, 77);
+        assertEq(hook.lastProbeAt(AGENT_ID), uint64(block.timestamp));
+
+        hook.setAttestor(stranger);
+        assertEq(hook.lastProbeAt(AGENT_ID), 0, "a probe signed by a retired key is not evidence");
+        assertEq(hook.lastProbeScore(AGENT_ID), 0);
+
+        (bool ok,,) = hook.isHireable(AGENT_ID);
+        assertFalse(ok);
+    }
+
+    // ---------------------------------------------------------------------
+    // Bounded job read
+    // ---------------------------------------------------------------------
+
+    function test_GetJobParties_MatchesGetJob() public {
+        uint256 jobId = _createAndBudget(address(hook), BUDGET);
+        (address c, address p, address e, uint256 b, uint256 x, IAgenticCommerce.JobStatus st) =
+            commerce.getJobParties(jobId);
+        IAgenticCommerce.Job memory job = commerce.getJob(jobId);
+
+        assertEq(c, job.client);
+        assertEq(p, job.provider);
+        assertEq(e, job.evaluator);
+        assertEq(b, job.budget);
+        assertEq(x, job.expiredAt);
+        assertEq(uint8(st), uint8(job.status));
+    }
+
+    function test_GetJobParties_RevertsOnUnknownJob() public {
+        vm.expectRevert(IAgenticCommerce.InvalidJob.selector);
+        commerce.getJobParties(99);
+    }
+
+    /// @dev Constant gas regardless of the client-chosen description, which is why the hook reads
+    ///      this rather than `getJob` on the funding path.
+    function test_GetJobParties_CostDoesNotFollowTheDescription() public {
+        vm.prank(client);
+        uint256 shortJob = commerce.createJob(provider, evaluator, block.timestamp + JOB_DURATION, "x", address(0));
+
+        string memory long = new string(4_000);
+        vm.prank(client);
+        uint256 longJob = commerce.createJob(provider, evaluator, block.timestamp + JOB_DURATION, long, address(0));
+
+        uint256 before = gasleft();
+        commerce.getJobParties(shortJob);
+        uint256 shortCost = before - gasleft();
+
+        before = gasleft();
+        commerce.getJobParties(longJob);
+        uint256 longCost = before - gasleft();
+
+        assertApproxEqAbs(shortCost, longCost, 1_000, "the description does not enter the cost");
+    }
+
+    // ---------------------------------------------------------------------
+    // Stalled versus expired
+    // ---------------------------------------------------------------------
+
+    function test_RecordExpiry_UndeliveredCountsAgainstTheAgent() public {
+        _probe(AGENT_ID, 95);
+        uint256 jobId = _createFundedJob();
+
+        vm.warp(block.timestamp + JOB_DURATION + 1);
+        commerce.claimRefund(jobId);
+        hook.recordExpiry(jobId);
+
+        HallmarkHook.Record memory record = hook.agentRecord(AGENT_ID);
+        assertEq(record.jobsExpired, 1);
+        assertEq(record.jobsStalled, 0);
+    }
+
+    function test_RecordExpiry_EmitsForAnUnboundJobToo() public {
+        // A job that used a different hook still resolves, and still emits, rather than being
+        // consumed silently.
+        uint256 jobId = _createAndBudget(address(0), BUDGET);
+        vm.prank(client);
+        commerce.fund(jobId, BUDGET, "");
+        vm.warp(block.timestamp + JOB_DURATION + 1);
+        commerce.claimRefund(jobId);
+
+        vm.expectEmit(true, true, false, true, address(hook));
+        emit HallmarkHook.ExpiryRecorded(jobId, 0, false);
+        hook.recordExpiry(jobId);
+    }
+
     function testFuzz_RecordProbe_OnlyAttestor(address caller) public {
         vm.assume(caller != attestor && caller != address(vm));
         vm.prank(caller);
