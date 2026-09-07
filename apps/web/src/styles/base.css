@@ -194,6 +194,22 @@ table {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Never uppercase an identifier.
+ *
+ * This language sets a lot of small labels in caps, and an address or a hash
+ * that inherits that becomes a different string from the one on the block
+ * explorer the reader is about to compare it against. `code` and `pre` are
+ * where every identifier in the app is rendered, so exempting them globally is
+ * more reliable than auditing each caps rule for what might sit inside it.
+ */
+code,
+pre,
+samp,
+kbd {
+  text-transform: none;
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }

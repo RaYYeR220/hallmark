@@ -389,6 +389,31 @@ export function RefusalFeed({ chainId }: { chainId: number }) {
         lead="These buttons run the real scope check — the same function an agent's execution path runs before it touches the relay — against the real policy for the category you pick. Nothing reaches a chain and nothing is mocked. A refusal here is the value a live agent would receive, word for word."
       />
 
+      <div style={{ marginBottom: 'var(--sp-4)' }}>
+        <Callout tone="neutral" title="What a refusal looks like further down the stack">
+          <p>
+            The check below runs locally, before anything is sent. If a call gets past it, the
+            relay applies the same policy again and refuses <em>by name</em>: an over-cap spend
+            comes back as <code>ExceededSpendLimit</code> and an off-allowlist call as{' '}
+            <code>UnauthorizedCall</code>, each naming the key hash, the target and the calldata,
+            raised at <code>wallet_prepareCalls</code> before a bundle exists at all.
+          </p>
+          <p>
+            So there is no transaction, no gas, and no status code to read — the refusal is a typed
+            error, which is better evidence than a number.{' '}
+            <a
+              href="https://github.com/hallmark"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              @hallmark/altana
+            </a>{' '}
+            currently classifies those two as <code>reverted</code> rather than <code>refused</code>
+            ; that is a known misclassification in the package and is documented there.
+          </p>
+        </Callout>
+      </div>
+
       <div className={styles.attempts}>
         <select
           className={styles.select}
@@ -459,9 +484,10 @@ export function RefusalFeed({ chainId }: { chainId: number }) {
 
       <SourceNote>
         Runs <code>checkScope()</code> from <code>@hallmark/altana</code> over{' '}
-        <code>buildPolicy()</code>&rsquo;s output. The refusal reasons — <code>call-not-allowed</code>
-        , <code>spend-cap</code>, <code>session-expired</code> — are the SDK&rsquo;s own, not copy
-        written for this page.
+        <code>buildPolicy()</code>&rsquo;s output. The reasons — <code>call-not-allowed</code>,{' '}
+        <code>spend-cap</code>, <code>session-expired</code> — are the SDK&rsquo;s own, not copy
+        written for this page. The relay&rsquo;s equivalents, one layer down, are{' '}
+        <code>UnauthorizedCall</code> and <code>ExceededSpendLimit</code>.
       </SourceNote>
     </Card>
   )

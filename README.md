@@ -1,3 +1,7 @@
+
+
+The libraries are pinned git submodules, so a clone needs them:
+
 # Hallmark
 
 **The trust layer for the agents on BNB Smart Chain.**

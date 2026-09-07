@@ -6,7 +6,14 @@ import {
   measureBlocksPerYear,
   type VenusMarketDepth,
 } from '../../chain/venus.js'
-import { fetchBscLlamaPools, poolsForAsset, type LlamaPool } from '../../chain/yields.js'
+import {
+  fetchBscLlamaPools,
+  fetchPancakePools,
+  pancakePoolsForAsset,
+  poolsForAsset,
+  type LlamaPool,
+  type PancakePool,
+} from '../../chain/yields.js'
 import {
   allAgree,
   assertion,
@@ -74,7 +81,7 @@ export type Venue = {
   depositsUsd: number | null
   /** What could be withdrawn right now. */
   availableLiquidityUsd: number | null
-  depthSource: 'onchain' | 'defillama'
+  depthSource: 'onchain' | 'defillama' | 'pancake-explorer'
   stablecoin: boolean
   ilRisk: string
   /** DeFiLlama's own flag that it does not stand behind this APY. */
@@ -112,6 +119,13 @@ export type YieldDecision = {
   /** Eligible venues only. Everything considered is in `excluded`. */
   venues: Venue[]
   excluded: Array<{ venue: string; apyPct: number | null; violations: Violation[] }>
+  /**
+   * Venues that could not be sourced at all, and why.
+   *
+   * A comparison that silently lacks a venue is indistinguishable from one
+   * where the venue scored badly. This makes the hole a stated limit.
+   */
+  unreachableVenues: Array<{ venue: string; reason: string }>
   moveCost: {
     gas: string
     gasPriceWei: string
@@ -160,6 +174,7 @@ export async function analyseYield(
   const asset = input.asset.toUpperCase()
   const sources: Source[] = []
   const warnings: string[] = []
+  const unreachableVenues: Array<{ venue: string; reason: string }> = []
 
   // --- on-chain: Venus -----------------------------------------------------
   // A per-block rate needs a blocks-per-year figure, and the constant everyone
@@ -201,10 +216,35 @@ export async function analyseYield(
       url: 'https://yields.llama.fi/pools',
     })
   } catch (error) {
-    warnings.push(
-      `DeFiLlama unavailable: ${error instanceof Error ? error.message : String(error)}. ` +
-        'The comparison below is on-chain only.',
-    )
+    const reason = `DeFiLlama unavailable: ${error instanceof Error ? error.message : String(error)}.`
+    warnings.push(`${reason} The comparison below is on-chain only.`)
+    unreachableVenues.push({ venue: 'every DeFiLlama-sourced venue', reason })
+  }
+
+  // --- first-party: the PancakeSwap Explorer -------------------------------
+  // DeFiLlama does carry PancakeSwap BSC pools, but only v2 — the deepest
+  // stable venue on the chain is a v3 pool at roughly $41M and Llama has no
+  // record of it. A Llama-only comparison omits it without saying so, which
+  // is the failure this source exists to close.
+  let pancakePools: PancakePool[] = []
+  try {
+    const all = await fetchPancakePools({ fetchImpl: ctx.fetch })
+    pancakePools = pancakePoolsForAsset(all, asset)
+    sources.push({
+      kind: 'http',
+      label: 'PancakeSwap Explorer',
+      detail:
+        `${all.length} BSC pools across v3, v2 and stable, ${pancakePools.length} of them ` +
+        'holding ' + asset + '. First-party and keyless. `apr24h` is a decimal fraction ' +
+        'upstream and is converted to a percentage here, once.',
+      url: 'https://explorer.pancakeswap.com/api/cached/pools/list?chains=bsc&protocols=v3',
+    })
+  } catch (error) {
+    const reason = `The PancakeSwap Explorer could not be reached: ${
+      error instanceof Error ? error.message : String(error)
+    }. PancakeSwap venues are missing from this comparison, not absent from the chain.`
+    warnings.push(reason)
+    unreachableVenues.push({ venue: 'pancakeswap', reason })
   }
 
   // --- price ---------------------------------------------------------------
@@ -241,7 +281,13 @@ export async function analyseYield(
         reconcile({
           label: `Venus ${asset} supply APY`,
           primary: {
-            source: `supplyRatePerBlock() × ${blockRate.blocksPerYear} blocks/yr`,
+            // Stated as it is actually computed. It used to say "x N blocks"
+            // beside a compounded figure, so a reviewer checking the
+            // arithmetic found 2.7954% where the output said 2.8349% — the
+            // value was defensible and the derivation printed next to it was
+            // not, which is worse than either alone.
+            source:
+              `(1 + supplyRatePerBlock/1e18)^${blockRate.blocksPerYear} - 1, compounded per block`,
             value: venusMarket.supplyApyPct,
           },
           secondary: { source: 'DeFiLlama apyBase', value: llamaVenus.apyBase },
@@ -349,6 +395,89 @@ export async function analyseYield(
     })
   }
 
+  // --- PancakeSwap, from its own Explorer ----------------------------------
+  // Deduped against DeFiLlama by pair: where both describe the same pool the
+  // first-party figure wins, and a material disagreement between the two is
+  // carried as a caveat rather than resolved silently.
+  const STABLES = new Set(['USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI', 'TUSD', 'USD1'])
+  const pancakeByTvl = [...pancakePools].sort((a, b) => b.tvlUsd - a.tvlUsd).slice(0, 10)
+
+  for (const pool of pancakeByTvl) {
+    const pair = `${pool.token0Symbol}-${pool.token1Symbol}`
+    const bothStable =
+      STABLES.has(pool.token0Symbol.toUpperCase()) && STABLES.has(pool.token1Symbol.toUpperCase())
+
+    const caveats: string[] = []
+    if (!bothStable) {
+      caveats.push(
+        `${pair} pairs ${asset} against a volatile asset, so its quoted APR is fee income ` +
+          'against divergence risk, not a return.',
+      )
+    }
+    caveats.push(
+      `APR is the Explorer's trailing 24h figure for pool ${pool.id}, annualised from one day of ` +
+        'volume. A quiet day and a busy day give very different numbers.',
+    )
+
+    // The same pair, as DeFiLlama sees it. A large gap is worth stating.
+    const llamaTwin = llamaPools.find(
+      (entry) =>
+        entry.project.toLowerCase().includes('pancake') &&
+        entry.symbol.toUpperCase().split(/[-/]/).sort().join('-') ===
+          [pool.token0Symbol.toUpperCase(), pool.token1Symbol.toUpperCase()].sort().join('-'),
+    )
+    if (llamaTwin && llamaTwin.tvlUsd > 0 && pool.tvlUsd > 0) {
+      const ratio = Math.max(llamaTwin.tvlUsd, pool.tvlUsd) / Math.min(llamaTwin.tvlUsd, pool.tvlUsd)
+      if (ratio > 1.5) {
+        caveats.push(
+          `DeFiLlama puts this pair's TVL at $${Math.round(llamaTwin.tvlUsd).toLocaleString('en-US')} ` +
+            `against the Explorer's $${Math.round(pool.tvlUsd).toLocaleString('en-US')}. The two ` +
+            'do not agree; the first-party figure is used and the gap is reported rather than ' +
+            'averaged away.',
+        )
+      }
+    }
+
+    venues.push({
+      name: `pancakeswap-${pool.protocol} ${pair}`,
+      project: `pancakeswap-${pool.protocol}`,
+      kind: 'lp',
+      apyPct: pool.apr24hPct,
+      apyBasePct: pool.apr24hPct,
+      apyRewardPct: null,
+      depositsUsd: pool.tvlUsd,
+      availableLiquidityUsd: pool.tvlUsd,
+      depthSource: 'pancake-explorer',
+      stablecoin: bothStable,
+      // A stable-stable pool still has divergence risk on a depeg, but not the
+      // directional exposure a volatile pair carries. Graded the way
+      // DeFiLlama grades the equivalent pools, so the mandate rule means the
+      // same thing across sources.
+      ilRisk: bothStable ? 'no' : 'yes',
+      outlier: false,
+      exposure: 'multi',
+      violations: [],
+      eligible: true,
+      shareOfDepositsPct:
+        amountUsd === null || pool.tvlUsd <= 0 ? null : (amountUsd / pool.tvlUsd) * 100,
+      caveats,
+      onchain: null,
+      llamaPoolId: llamaTwin?.pool ?? null,
+    })
+  }
+
+  // Llama's PancakeSwap rows are superseded by the first-party ones above.
+  const supersededPancake = venues.filter(
+    (venue) => venue.depthSource === 'defillama' && venue.project.toLowerCase().includes('pancake'),
+  )
+  if (supersededPancake.length > 0 && pancakeByTvl.length > 0) {
+    for (const venue of supersededPancake) venues.splice(venues.indexOf(venue), 1)
+    warnings.push(
+      `${supersededPancake.length} PancakeSwap venue(s) from DeFiLlama were replaced by the ` +
+        "Explorer's own figures, which cover v3 as well as v2 and are first-party.",
+    )
+  }
+
   venues.sort((a, b) => (b.apyPct ?? -1) - (a.apyPct ?? -1))
 
   // --- judge every candidate against the mandate ---------------------------
@@ -366,6 +495,25 @@ export async function analyseYield(
       mandate.applied,
     )
     venue.eligible = venue.violations.length === 0
+  }
+
+  // A venue the mandate names but nothing could source is a stated hole, not
+  // an absence. Checked against everything considered, eligible or not.
+  for (const named of mandate.applied.venues) {
+    const needle = named.toLowerCase()
+    const found = venues.some(
+      (venue) =>
+        venue.name.toLowerCase().includes(needle) || venue.project.toLowerCase().includes(needle),
+    )
+    if (!found && !unreachableVenues.some((entry) => entry.venue === named)) {
+      unreachableVenues.push({
+        venue: named,
+        reason:
+          `The mandate names "${named}", but no source this agent reads lists it holding ` +
+          `${asset} on BNB Chain. It is absent from this comparison, which is not the same as ` +
+          'having scored badly in it.',
+      })
+    }
   }
 
   const topRankedOverall = venues[0] ?? null
@@ -538,6 +686,7 @@ export async function analyseYield(
     allocation,
     venues: eligible,
     excluded,
+    unreachableVenues,
     moveCost: {
       gas: gasTotal.toString(),
       gasPriceWei: gasPrice.toString(),
@@ -580,6 +729,7 @@ export async function analyseYield(
             `${best.availableLiquidityUsd === null ? '' : `, $${(best.availableLiquidityUsd / 1e6).toFixed(1)}M withdrawable right now`}.`,
           decision.breakEven.detail,
         ]),
+    ...unreachableVenues.map((entry) => `Unreachable: ${entry.venue} — ${entry.reason}`),
     ...excluded.map(
       (entry) =>
         `Excluded ${entry.venue} (${entry.apyPct?.toFixed(2) ?? '-'}%): ` +

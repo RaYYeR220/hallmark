@@ -175,5 +175,6 @@ the fetch and hid agents' endpoints entirely, reporting 5 protocol-live where th
 | Agent operator | [`0x38c6Fc4a5525B37f9545423A7132157f69ce08dA`](https://bscscan.com/address/0x38c6Fc4a5525B37f9545423A7132157f69ce08dA) |
 
 ```bash
-cd contracts && forge install && forge test    # 228 tests
+git clone --recursive https://github.com/RaYYeR220/hallmark
+cd hallmark/contracts && forge test    # 228 tests
 ```

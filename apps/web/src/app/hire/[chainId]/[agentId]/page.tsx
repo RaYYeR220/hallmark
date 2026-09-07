@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { Suspense } from 'react'
 
 import { AddressLink, TxLink } from '@/components/chain/links'
 import { HireFlow, type HireConfig } from '@/components/hire/HireFlow'
@@ -13,14 +14,16 @@ import {
   Row,
   Rows,
   SectionHeading,
+  Skeleton,
   SourceNote,
 } from '@/components/ui'
-import { getAgentDetail } from '@/lib/agents'
+import { getAgentDetail, getAgentIdentity } from '@/lib/agents'
 import { parseAgentId, parseChainId } from '@/lib/chain'
 import {
   CATEGORY_DEFINITIONS,
   CATEGORY_LIST,
   isCategory,
+  primaryCategory,
   type HallmarkCategory,
 } from '@/lib/categories'
 import { chainLabel, getDeployment, type SupportedChainId } from '@/lib/deployments'
@@ -69,11 +72,18 @@ export default async function HirePage({ params, searchParams }: PageProps) {
   const agentId = parseAgentId(agentRaw)
   if (chainId === null || agentId === null) notFound()
 
-  const [detail, preflight] = await Promise.all([
-    getAgentDetail(chainId, agentId),
+  // Only chain reads block this route. Both are multicalls that answer in a
+  // few hundred milliseconds, and between them they carry everything the
+  // refusal hero, the scope panel and the hire controls need. The dossier —
+  // evidence timeline, reputation, validations — is streamed below, because
+  // this page shows a summary of it and the index it partly depends on has
+  // slow days. Blocking activation, one of the four steps of the journey, on a
+  // sidebar was costing six seconds.
+  const [identity, preflight] = await Promise.all([
+    getAgentIdentity(chainId, agentId),
     preflightHire(chainId, agentId),
   ])
-  if (detail === null) notFound()
+  if (identity === null) notFound()
 
   const requested = Array.isArray(query['category']) ? query['category'][0] : query['category']
   // The category picked in the URL wins; otherwise fall back to what the
@@ -81,7 +91,7 @@ export default async function HirePage({ params, searchParams }: PageProps) {
   // nothing. The choice is always visible and always changeable on the page.
   const category: HallmarkCategory = isCategory(requested)
     ? requested
-    : (detail.categories[0]?.category ?? 'rebalancing')
+    : (primaryCategory(identity.name, identity.description) ?? 'rebalancing')
   const definition = CATEGORY_DEFINITIONS[category]
   const scope = buildScopePreview(category, chainId)
 
@@ -92,12 +102,12 @@ export default async function HirePage({ params, searchParams }: PageProps) {
   const config: HireConfig = {
     chainId,
     agentId,
-    agentName: detail.name,
+    agentName: identity.name,
     // The payee, resolved by the preflight the same way the hook resolves it.
     // Falls back to the owner only when the registry has no wallet for the
     // agent, which is also what the contract does.
-    provider: preflight.payee ?? detail.owner,
-    owner: preflight.owner ?? detail.owner,
+    provider: preflight.payee ?? identity.owner,
+    owner: preflight.owner ?? identity.owner,
     minAttestableBudget: preflight.minAttestableBudget.toString(),
     commerce: deployment?.commerce ?? null,
     hook: deployment?.hook ?? null,
@@ -122,7 +132,7 @@ export default async function HirePage({ params, searchParams }: PageProps) {
       <nav className={layout.breadcrumb} aria-label="Breadcrumb">
         <Link href="/agents">Agents</Link>
         <span aria-hidden="true">/</span>
-        <Link href={`/agents/${chainId}/${agentId}`}>{detail.name}</Link>
+        <Link href={`/agents/${chainId}/${agentId}`}>{identity.name}</Link>
         <span aria-hidden="true">/</span>
         <span>Hire</span>
       </nav>
@@ -131,7 +141,7 @@ export default async function HirePage({ params, searchParams }: PageProps) {
         <SectionHeading
           level={1}
           eyebrow={`${chainLabel(chainId)} · agent #${agentId}`}
-          title={`Hire ${detail.name}`}
+          title={`Hire ${identity.name}`}
           lead="Read the scope before you grant it. Everything below is what the chain will actually enforce, not a summary of it."
         />
       </header>
@@ -209,34 +219,15 @@ export default async function HirePage({ params, searchParams }: PageProps) {
         </div>
 
         <div className={styles.stack}>
-          <Card>
-            <SectionHeading eyebrow="The agent" title={detail.name} level={3} />
-            <Rows>
-              <Row label="Evidence">{detail.evidence.label}</Row>
-              <Row label="Last checked">
-                <RelativeTime value={detail.evidence.observedAt} serverNow={serverNow} />
-              </Row>
-              <Row label="Paid to">
-                <AddressLink chainId={chainId} address={preflight.payee ?? detail.owner} />
-                {preflight.payee !== null &&
-                  detail.owner !== null &&
-                  preflight.payee.toLowerCase() !== detail.owner.toLowerCase() && (
-                    <span
-                      style={{ display: 'block', fontSize: 'var(--fs-2xs)', color: 'var(--text-faint)' }}
-                    >
-                      the agent&rsquo;s registered wallet, not its owner
-                    </span>
-                  )}
-              </Row>
-              <Row label="Declared endpoints">{detail.endpoints.length}</Row>
-              <Row label="On-chain ratings">{detail.reputation.feedback.length}</Row>
-            </Rows>
-            <div style={{ marginTop: 'var(--sp-4)' }}>
-              <ButtonLink href={`/agents/${chainId}/${agentId}`} size="small">
-                Read the full evidence
-              </ButtonLink>
-            </div>
-          </Card>
+          <Suspense fallback={<AgentPanelSkeleton name={identity.name} />}>
+            <AgentPanel
+              chainId={chainId}
+              agentId={agentId}
+              fallbackName={identity.name}
+              payee={preflight.payee ?? identity.owner}
+              serverNow={serverNow}
+            />
+          </Suspense>
 
           <Card muted>
             <SectionHeading eyebrow="What happens on-chain" title="The five calls" level={3} />
@@ -450,3 +441,84 @@ function ScopeSentences({ scope }: { scope: ScopePreview }) {
 }
 
 
+/* ------------------------------------------------------------------ */
+/* the streamed sidebar                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The agent's dossier, streamed.
+ *
+ * Needs the full detail model — evidence verdict, endpoint count, rating count
+ * — which pulls the index and both ERC-8004 registries. None of it changes
+ * whether the reader can hire, so it fills in after the page has already
+ * rendered the decision-critical half.
+ */
+async function AgentPanel({
+  chainId,
+  agentId,
+  fallbackName,
+  payee,
+  serverNow,
+}: {
+  chainId: SupportedChainId
+  agentId: number
+  fallbackName: string
+  payee: `0x${string}` | null
+  serverNow: number
+}) {
+  const detail = await getAgentDetail(chainId, agentId).catch(() => null)
+  if (detail === null) return <AgentPanelSkeleton name={fallbackName} unavailable />
+
+  return (
+    <Card>
+      <SectionHeading eyebrow="The agent" title={detail.name} level={3} />
+      <Rows>
+        <Row label="Evidence">{detail.evidence.label}</Row>
+        <Row label="Last checked">
+          <RelativeTime value={detail.evidence.observedAt} serverNow={serverNow} />
+        </Row>
+        <Row label="Paid to">
+          <AddressLink chainId={chainId} address={payee ?? detail.owner} />
+          {payee !== null &&
+            detail.owner !== null &&
+            payee.toLowerCase() !== detail.owner.toLowerCase() && (
+              <span
+                style={{ display: 'block', fontSize: 'var(--fs-2xs)', color: 'var(--text-faint)' }}
+              >
+                the agent&rsquo;s registered wallet, not its owner
+              </span>
+            )}
+        </Row>
+        <Row label="Declared endpoints">{detail.endpoints.length}</Row>
+        <Row label="On-chain ratings">{detail.reputation.feedback.length}</Row>
+      </Rows>
+      <div style={{ marginTop: 'var(--sp-4)' }}>
+        <ButtonLink href={`/agents/${chainId}/${agentId}`} size="small">
+          Read the full evidence
+        </ButtonLink>
+      </div>
+    </Card>
+  )
+}
+
+function AgentPanelSkeleton({ name, unavailable }: { name: string; unavailable?: boolean }) {
+  return (
+    <Card>
+      <SectionHeading eyebrow="The agent" title={name} level={3} />
+      {unavailable === true ? (
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)' }}>
+          The dossier could not be read just now. It does not affect anything on the left — the
+          evidence gate, the scope and the price all come from contract calls that already
+          answered.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          <Skeleton height="1rem" />
+          <Skeleton height="1rem" />
+          <Skeleton height="1rem" />
+          <Skeleton height="1rem" width="60%" />
+        </div>
+      )}
+    </Card>
+  )
+}

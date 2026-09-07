@@ -28,6 +28,24 @@ export type HallmarkDeployment = {
     refused: { hash: `0x${string}`; agentId: number; error: string }
     settled: { fund: `0x${string}`; complete: `0x${string}`; agentId: number }
   }
+  /**
+   * The session-key lifecycle, run end to end on this chain.
+   *
+   * Grant, a real protocol call made *as the agent* under the key, then
+   * revoke. Recorded here because these are receipts and receipts do not
+   * change; the Keystore state beside them is re-read live, so if the revoke
+   * were ever undone the page would stop claiming it.
+   */
+  sessionProof: {
+    /** The Altana smart account the key was granted on. */
+    wallet: `0x${string}`
+    /** keccak256 of the session key's public key, as the Keystore names it. */
+    sessionKeyId: `0x${string}`
+    grant: `0x${string}`
+    /** What the agent actually did with it. */
+    act: { hash: `0x${string}`; label: string }
+    revoke: `0x${string}`
+  }
   /** Deployment transactions, so every address on /proof is clickable. */
   deployTx: { label: string; hash: `0x${string}` }[]
   deployBlock: number
@@ -60,6 +78,16 @@ const TESTNET_DEPLOYMENT: HallmarkDeployment = {
       complete: '0xf03c3873d268197d6f405c87e2d6bbfd62d1faec1130583a7391013a643989e1',
       agentId: 2210,
     },
+  },
+  sessionProof: {
+    wallet: '0x330eb8FFc68d549057fC5115218a6590b39e8531',
+    sessionKeyId: '0x209a9c04a3196ca74a04cb47caa521feefe1760d206aff858bd82278454be0ee',
+    grant: '0x8e5c0023b27153df25d9dc1bd880afa67a8cbcb698c81b74e773cd7687b856b4',
+    act: {
+      hash: '0xbb50ff72f71a2b0b782842fb9b036ea53e2c737c472b29ae9b72935fbc78fd76',
+      label: 'Venus mint() — supplied 0.001 tBNB as collateral',
+    },
+    revoke: '0xc5572b8f4f4e68518abd4594874e6a2cf39cd920475cb7ed2fca3b4cfdf3d2f6',
   },
   deployTx: [
     {

@@ -141,6 +141,32 @@ export async function readKeystore(
 }
 
 /**
+ * Is one specific key still authorised, right now?
+ *
+ * Used by the lifecycle panel to re-check its own story on every request. A
+ * page that says "revoked" should be reading that, not remembering it — if the
+ * key were ever re-registered this returns true and the panel says so.
+ */
+export async function isKeyStillValid(
+  chainId: SupportedChainId,
+  address: Address,
+  keyId: `0x${string}`,
+): Promise<boolean> {
+  try {
+    return (await publicClientFor(chainId).readContract({
+      address: KEYSTORE_ADDRESSES[chainId],
+      abi: keystoreAbi,
+      functionName: 'isValidKey',
+      args: [address, keyId],
+    })) as boolean
+  } catch {
+    // A failed read is not a revocation. Reporting false here would turn our
+    // own outage into a claim about someone's authorisation.
+    return false
+  }
+}
+
+/**
  * The reproduction recipe, printed on the page.
  *
  * Not decoration: a claim about verifiability that nobody can act on is a

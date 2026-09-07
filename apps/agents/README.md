@@ -175,6 +175,48 @@ it, never ranked-and-caveated. `risks` is `string[] | null` and is never `[]` �
 `null` plus a reason is what "we could not determine" looks like. With no
 mandate the conservative default applies and the output says so.
 
+**The agent answers, it does not abstain.** `caution, score 70` is a grade, not
+a decision — and a report that stops there has declined the question while
+holding all the evidence. Every security report now carries
+`recommendation: 'proceed' | 'do-not-proceed'`, two values and never three,
+with the rule stated: anything failed, any unknown on a check that matters, or
+a round trip costing more than 5%, and the answer is no. An unrun check is not
+a reason to buy.
+
+**Buy and sell tax are reported, or listed as unknown.** They were missing
+entirely — not in the findings, not in `unknowns` — from an agent whose pitch is
+that sellability is measured. On the subject token the simulation returns
+**300 bps buy, 299 bps sell**, and on the free tier, which does not simulate,
+the finding is present with status `unknown` rather than absent. That absence
+was also why the free tier could reach `proceed`: an unrun critical check that
+emits no finding costs nothing in the verdict.
+
+**Privilege follows the contracts the token points at.** A token can be
+renounced and still be controlled one hop away. The scan now reads
+`taxProcessor()`, `dividendContract()` and eight other common getters, follows
+any that hold code, and reads their ownership. On the subject token both are
+owned by a single non-renounced key — which the token's own renounced ownership
+says nothing about.
+
+**PancakeSwap comes from PancakeSwap.** DeFiLlama does carry Pancake BSC pools,
+but only v2; the deepest stable venue on the chain is a v3 pool at roughly $41M
+and Llama has no record of it. The Explorer API is first-party and keyless, and
+its `apr24h` is a decimal fraction converted once, here. The previous parser
+looked for `data` where the payload has `rows`, so it had been returning an
+empty list silently — the same class of failure, in our own code.
+
+**A venue that cannot be sourced is named.** `unreachableVenues` carries
+`{venue, reason}` for anything the mandate names that no source lists, and for
+any source that failed. A comparison quietly lacking a venue is
+indistinguishable from one where the venue scored badly.
+
+**Stated derivations match their numbers.** The Venus APY reconciliation used
+to print `supplyRatePerBlock() × N blocks/yr` beside a compounded figure — the
+value was defensible, the method printed next to it was not, and a reviewer who
+checked the arithmetic found a different number. It now prints
+`(1 + rate)^N − 1, compounded per block`, and a test recomputes the printed
+figure from the printed inputs.
+
 **Cost fields are total or named.** The rebalancer's `cost.totalUsd` was gas
 only while the prose said "plus the ratio swap" — about 133× low on a real
 position, and worse than either being wrong alone, because a caller integrates
@@ -357,7 +399,7 @@ exercises `app.fetch`.
 
 ```bash
 pnpm install
-pnpm test          # 241 tests, no network, no keys
+pnpm test          # 251 tests, no network, no keys
 pnpm typecheck
 pnpm start         # http://localhost:8787
 pnpm prove         # every face, against live BNB Chain mainnet, read-only

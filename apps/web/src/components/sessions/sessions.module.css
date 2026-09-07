@@ -262,3 +262,77 @@
 .recipe {
   margin-top: var(--sp-4);
 }
+
+/* --- The worked lifecycle -------------------------------------------------- */
+
+.lifecycle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+@media (max-width: 52rem) {
+  .lifecycle {
+    grid-template-columns: 1fr;
+  }
+}
+
+.phase {
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--blob-2);
+  background: var(--surface-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Grant and act are the key doing its job — magenta, the probe/authority
+   signal. Revoke is the key ceasing to exist, so it takes no colour. */
+.phaseLive {
+  border-color: color-mix(in srgb, var(--sig-probe) 45%, var(--border));
+}
+
+.phaseDead {
+  border-color: var(--hypha-strong);
+}
+
+.phaseName {
+  font-family: var(--font-display);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+}
+
+.phaseNameLive {
+  color: var(--text-accent);
+}
+
+.phaseBody {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.phaseState {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+
+/* Never uppercase a hash or an address. It reads as a different string, and
+   on a page whose whole job is letting someone compare an identifier against a
+   block explorer that is worse than ugly. */
+.phaseState a,
+.phaseState code {
+  text-transform: none;
+}
+
+.phaseStateValue {
+  color: var(--text);
+}

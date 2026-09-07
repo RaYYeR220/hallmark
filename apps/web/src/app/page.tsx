@@ -35,14 +35,14 @@ export default function HomePage() {
         <ColonyLegend />
 
         <h1 className={styles.heroClaim}>
-          One in 250 of these agents{' '}
-          <span className={styles.heroAccent}>actually works.</span>
+          1,388 agents claim to be callable.{' '}
+          <span className={styles.heroAccent}>19 answer.</span>
         </h1>
 
         <p className={styles.heroLead}>
-          Hallmark grows evidence through the whole ERC-8004 registry on BNB Chain — probing every
-          declared endpoint, publishing the result on-chain, and letting you hire the living ones
-          under a contract allowlist, a spend cap and an expiry you can revoke.
+          Out of 12,403 agents we probed on BNB Chain. Hallmark calls every declared endpoint,
+          publishes the result on-chain, and lets you hire the ones that answer under a contract
+          allowlist, a spend cap and an expiry you can revoke.
         </p>
 
         <div className={styles.heroActions}>
@@ -79,10 +79,10 @@ export default function HomePage() {
 /**
  * Four numbers, one line.
  *
- * The first is read live and timestamped. The other three are census
- * measurements from CLAIMS.md, quoted with their denominators — a rate without
- * a denominator is a slogan, and the funnel is the actual finding: most agents
- * never claim to be callable, and most that do are not.
+ * The first is read live and timestamped. The other three come from our own
+ * prober's store, quoted with their denominators — a rate without a denominator
+ * is a slogan, and the funnel is the actual finding: most agents never claim to
+ * be callable, and most that do are not.
  */
 async function ProofStrip() {
   const mainnet = await getCachedEcosystem(56)
@@ -96,25 +96,26 @@ async function ProofStrip() {
         indexed on BSC
       </span>
       <span className={styles.proofItem}>
-        <b className={`${styles.proofValue} ${styles.proofValueProbe}`}>23 of 6,000</b>
-        spoke a protocol
+        <b className={`${styles.proofValue} ${styles.proofValueProbe}`}>12,403</b>
+        probed by us
       </span>
       <span className={styles.proofItem}>
         <b className={styles.proofValue}>99.3%</b>
         of endpoints answered
       </span>
       <span className={styles.proofItem}>
-        <b className={styles.proofValue}>46.4%</b>
-        declare no endpoint
+        <b className={`${styles.proofValue} ${styles.proofValueAttest}`}>86</b>
+        attestations across 34 agents
       </span>
 
       <p className={styles.proofNote}>
         {mainnet === null
           ? 'The public index is not answering right now, so the live count is withheld rather than guessed. Everything else on this site reads from the chain directly and still works. '
           : `Count read ${formatDateTime(mainnet.fetchedAt)} from the 8004scan index, cached for five minutes. `}
-        The rest are census measurements over a 6,000-agent sample, reproducible from this
-        repository. This is not a dead-links story — almost everything answers. It answers with a
-        profile page.
+        The rest come from our own prober&rsquo;s store — 12,403 agents across four sweeps,
+        reproducible with <code>pnpm stats --chain 56</code>. The 19 that answer sit behind 7
+        distinct hosts. This is not a dead-links story: almost everything answers. It answers with
+        a profile page.
       </p>
     </div>
   )
@@ -278,9 +279,9 @@ function TheProblem() {
             <h3 className={styles.problemTitle}>A registration is not a heartbeat</h3>
             <p className={styles.problemBody}>
               ERC-8004 registers an identity and a declared endpoint. Nothing in the standard checks
-              that anything answers there. Nearly half of all agents — 46.4% of a 6,000-agent sample
-              — publish a perfectly valid registration file with no <code>services</code> key at
-              all.
+              that anything answers there. Of the 12,403 agents we probed, 7,866 declare no
+              reachable endpoint at all — a perfectly valid registration file that never says how
+              to reach the agent.
             </p>
           </div>
           <div className={styles.problemItem}>

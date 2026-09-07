@@ -535,3 +535,131 @@ describe('the mandate', () => {
     expect(result.decision.best!.project).toBe('venus-core-pool')
   })
 })
+
+describe('venues that cannot be sourced are named, not omitted', () => {
+  it('reports a mandate-named venue nothing lists, rather than a quiet gap', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(
+        llamaResponse([
+          {
+            project: 'venus-core-pool',
+            symbol: 'USDT',
+            apyBase: supplyApyFromRatePerBlock(401_551_845n),
+            apy: supplyApyFromRatePerBlock(401_551_845n),
+          },
+        ]),
+      ),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '5000', mandate: { venues: ['thena', 'ellipsis'] } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+
+    const named = result.decision.unreachableVenues.map((entry) => entry.venue)
+    expect(named).toContain('thena')
+    expect(named).toContain('ellipsis')
+    expect(result.decision.unreachableVenues[0]!.reason).toContain('not the same as having scored badly')
+    // And it reaches the narrative, so a reader sees it without the JSON.
+    expect(result.narrative.join(' ')).toContain('Unreachable')
+  })
+
+  it('does not report a venue it did source as unreachable — the control', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(
+        llamaResponse([
+          {
+            project: 'venus-core-pool',
+            symbol: 'USDT',
+            apyBase: supplyApyFromRatePerBlock(401_551_845n),
+            apy: supplyApyFromRatePerBlock(401_551_845n),
+          },
+        ]),
+      ),
+    })
+    const result = await analyseYield(
+      { asset: 'USDT', amount: '5000', mandate: { venues: ['venus'] } },
+      ctx,
+      { deep: false },
+    )
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.unreachableVenues.map((entry) => entry.venue)).not.toContain('venus')
+  })
+
+  it('names PancakeSwap as unreachable when its Explorer fails', async () => {
+    resetYieldCaches()
+    // DeFiLlama answers; the Explorer does not.
+    let call = 0
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: (async (url: string) => {
+        call += 1
+        if (String(url).includes('pancakeswap')) throw new Error('explorer down')
+        return new Response(
+          JSON.stringify(
+            llamaResponse([
+              {
+                project: 'venus-core-pool',
+                symbol: 'USDT',
+                apyBase: supplyApyFromRatePerBlock(401_551_845n),
+                apy: supplyApyFromRatePerBlock(401_551_845n),
+              },
+            ]),
+          ),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as typeof fetch,
+    })
+    const result = await analyseYield({ asset: 'USDT', amount: '5000' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    expect(call).toBeGreaterThan(1)
+    const entry = result.decision.unreachableVenues.find((item) => item.venue === 'pancakeswap')
+    expect(entry).toBeTruthy()
+    expect(entry!.reason).toContain('not absent from the chain')
+  })
+})
+
+describe('the printed APY derivation matches the printed number', () => {
+  it('recomputes the reconciliation figure from the method it states', async () => {
+    resetYieldCaches()
+    const ctx = testContext({
+      client: fakeClient(venusChain()),
+      now: NOW,
+      fetchImpl: fetchReturning(
+        llamaResponse([
+          {
+            project: 'venus-core-pool',
+            symbol: 'USDT',
+            apyBase: supplyApyFromRatePerBlock(401_551_845n),
+            apy: supplyApyFromRatePerBlock(401_551_845n),
+          },
+        ]),
+      ),
+    })
+    const result = await analyseYield({ asset: 'USDT', amount: '5000' }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    const check = result.decision.checks.find((entry) => entry.label.includes('supply APY'))!
+    // The stated method, parsed out of the source string, must reproduce the
+    // stated value. It used to say "x N blocks" beside a compounded number.
+    const blocks = Number(/\^(\d+)/.exec(check.primary.source)![1])
+    const rate = 401_551_845 / 1e18
+    const recomputed = (Math.pow(1 + rate, blocks) - 1) * 100
+    expect(check.primary.value).toBeCloseTo(recomputed, 9)
+
+    // And the simple product, which the old label described, is materially
+    // different — so the label was not a harmless imprecision.
+    const simpleProduct = rate * blocks * 100
+    expect(Math.abs(simpleProduct - check.primary.value)).toBeGreaterThan(0.01)
+    expect(check.primary.source).toContain('compounded per block')
+    expect(check.primary.source).not.toMatch(/×|\bx\b/)
+  })
+})

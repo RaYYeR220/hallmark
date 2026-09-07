@@ -33,7 +33,11 @@ export const env = {
   rpcUrl56: str('RPC_URL_56'),
   rpcUrl97: str('RPC_URL_97'),
   sponsorPrivateKey: str('SPONSOR_PRIVATE_KEY'),
-  sponsorMaxBudgetU: int('SPONSOR_MAX_BUDGET_U', 5),
+  // Default sits below the sponsor wallet's working balance so a run cannot
+  // be sized larger than the money behind it, and comfortably above the
+  // escrow's 0.1 $U minimum attestable budget so a sponsored job still earns
+  // its rating. Raise it only alongside the balance.
+  sponsorMaxBudgetU: int('SPONSOR_MAX_BUDGET_U', 2),
   sponsorRateLimitPerHour: int('SPONSOR_RATE_LIMIT_PER_HOUR', 3),
 } as const
 

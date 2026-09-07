@@ -492,3 +492,90 @@ describe('proxy resolution is load-bearing — do not regress it', () => {
     expect(proxySource.detail).toContain('No third-party proxy flag is trusted')
   })
 })
+
+describe('the agent answers rather than abstains', () => {
+  const noFetch = (async () =>
+    new Response(JSON.stringify({ match: null }), { status: 200 })) as unknown as typeof fetch
+
+  it('always produces one of exactly two recommendations', async () => {
+    const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    expect(['proceed', 'do-not-proceed']).toContain(result.decision.recommendation)
+    expect(result.decision.recommendationReason.length).toBeGreaterThan(40)
+  })
+
+  it('will not proceed on unrun checks — an abstention is not an answer', async () => {
+    // The free tier cannot simulate a sell, so sellability and tax are unknown.
+    // "caution, score 70" was the old output; it is not a decision.
+    const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    expect(result.decision.recommendation).toBe('do-not-proceed')
+    expect(result.decision.recommendationReason).toContain('could not be run')
+    expect(result.decision.recommendationReason).toContain('not a reason to buy')
+    expect(result.narrative[0]).toContain('DO NOT PROCEED')
+  })
+})
+
+describe('transfer tax', () => {
+  const noFetch = (async () =>
+    new Response(JSON.stringify({ match: null }), { status: 200 })) as unknown as typeof fetch
+
+  it('is present as an unknown rather than omitted when not simulated', async () => {
+    const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    // The gap the re-score found: not in findings, not even in unknowns.
+    expect(result.decision.tax).toBeTruthy()
+    expect(result.decision.tax.source).toBe('not-determined')
+    expect(result.decision.tax.detail).toContain('not the same as')
+    expect(result.decision.unknowns.join(' ')).toContain('buy and sell tax')
+  })
+
+  it('never reports an undetermined tax as zero', async () => {
+    const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.tax.buyBps).toBeNull()
+    expect(result.decision.tax.sellBps).toBeNull()
+    expect(result.decision.tax.buyBps).not.toBe(0)
+  })
+})
+
+describe('contracts the token routes through', () => {
+  const noFetch = (async () =>
+    new Response(JSON.stringify({ match: null }), { status: 200 })) as unknown as typeof fetch
+
+  it('follows a taxProcessor and reports that it is still owned', async () => {
+    const PROCESSOR = '0x00000000000000000000000000000000000e2ce6' as Address
+    const CONTROLLER = '0x000000000000000000000000000000000009de00' as Address
+    const state = tokenChain({ owner: DEAD })
+    state.reads[readKey(TOKEN, 'taxProcessor')] = PROCESSOR
+    state.reads[readKey(PROCESSOR, 'owner')] = CONTROLLER
+    state.code![PROCESSOR.toLowerCase()] = bodyWith([], 3_000)
+
+    const ctx = testContext({ client: fakeClient(state), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+
+    // The token itself is renounced; the contract it routes through is not.
+    expect(result.decision.findings.find((f) => f.id === 'ownership')!.status).toBe('pass')
+    const aux = result.decision.findings.find((f) => f.id === 'auxiliary-contracts')!
+    expect(aux.status).toBe('warn')
+    expect(aux.detail).toContain(CONTROLLER)
+    expect(aux.detail).toContain('survives the token itself being renounced')
+    expect(result.decision.auxiliary[0]!.getter).toBe('taxProcessor()')
+    expect(result.decision.auxiliary[0]!.renounced).toBe(false)
+  })
+
+  it('adds no finding when the token names no auxiliary contracts — the control', async () => {
+    const ctx = testContext({ client: fakeClient(tokenChain()), now: NOW, fetchImpl: noFetch })
+    const result = await analyseSecurity({ token: TOKEN }, ctx, { deep: false })
+    if ('error' in result) throw new Error(result.detail)
+    expect(result.decision.auxiliary).toEqual([])
+    expect(result.decision.findings.some((f) => f.id === 'auxiliary-contracts')).toBe(false)
+  })
+})

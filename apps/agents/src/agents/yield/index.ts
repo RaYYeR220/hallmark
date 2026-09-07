@@ -23,6 +23,7 @@ type FlatYieldInput = {
   minTvlUsd?: number
   maxSingleVenuePct?: number
   requireOnchainVerifiable?: boolean
+  venues?: string[]
   includeIlRisk?: boolean
   intentId?: string
   venue?: string
@@ -38,6 +39,7 @@ function toYieldInput(input: FlatYieldInput): YieldInput {
     ...(input.requireOnchainVerifiable === undefined
       ? {}
       : { requireOnchainVerifiable: input.requireOnchainVerifiable }),
+    ...(input.venues === undefined ? {} : { venues: input.venues }),
     // The deprecated flag maps on, but never overrides an explicit maxIlRisk.
     ...(input.includeIlRisk === true && input.maxIlRisk === undefined
       ? { maxIlRisk: 'yes' as const }
@@ -108,6 +110,14 @@ const shape: Shape = {
     description:
       'Only venues whose rate this agent can read on-chain itself, so no APR is repeated from a single third party. Excludes everything but Venus today.',
     optional: true,
+  },
+  venues: {
+    kind: 'array',
+    description:
+      'Venues to consider, by name or project substring. Anything named here that no source lists is reported in unreachableVenues rather than quietly omitted.',
+    optional: true,
+    items: { kind: 'string', description: 'A venue name or project, e.g. "pancakeswap".' },
+    maxItems: 20,
   },
   includeIlRisk: {
     kind: 'boolean',

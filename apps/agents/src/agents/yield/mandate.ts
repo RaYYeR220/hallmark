@@ -49,6 +49,15 @@ export type Mandate = {
    * mandate that says "verifiable".
    */
   requireOnchainVerifiable: boolean
+  /**
+   * Venues the caller wants considered, by name or project substring.
+   *
+   * Empty means "everything we can source". When a name here matches nothing,
+   * the decision says so in `unreachableVenues` rather than returning a list
+   * that quietly lacks it — a silent omission is indistinguishable from a
+   * venue that simply scored badly.
+   */
+  venues: string[]
 }
 
 /**
@@ -65,6 +74,7 @@ export const CONSERVATIVE_MANDATE: Mandate = {
   minTvlUsd: 1_000_000,
   maxSingleVenuePct: 50,
   requireOnchainVerifiable: false,
+  venues: [],
 }
 
 export type MandateInput = Partial<Mandate>

@@ -36,12 +36,16 @@ export type LlamaPool = {
 
 export const LLAMA_POOLS_URL = 'https://yields.llama.fi/pools'
 export const PANCAKE_EXPLORER_POOLS_URL =
-  'https://explorer.pancakeswap.com/api/cached/pools/list?chains=bsc&protocols=v3'
+  'https://explorer.pancakeswap.com/api/cached/pools/list'
+
+/** Every protocol the Explorer serves. v3 is where the deep stable pools are. */
+export const PANCAKE_PROTOCOLS = ['v3', 'v2', 'stable', 'infinityCl', 'infinityBin'] as const
+export type PancakeProtocol = (typeof PANCAKE_PROTOCOLS)[number]
 
 type CacheEntry<T> = { at: number; value: T }
 const CACHE_TTL_MS = 5 * 60 * 1000
 let llamaCache: CacheEntry<LlamaPool[]> | null = null
-let pancakeCache: CacheEntry<PancakePool[]> | null = null
+let pancakeCache: (CacheEntry<PancakePool[]> & { key: string }) | null = null
 
 export type FetchOptions = {
   fetchImpl?: typeof fetch
@@ -68,7 +72,13 @@ async function getJson(url: string, opts: FetchOptions): Promise<unknown> {
 }
 
 function num(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  // The PancakeSwap Explorer returns its numerics as strings.
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 export async function fetchBscLlamaPools(opts: FetchOptions = {}): Promise<LlamaPool[]> {
@@ -110,8 +120,11 @@ export async function fetchBscLlamaPools(opts: FetchOptions = {}): Promise<Llama
 
 export type PancakePool = {
   id: string
+  protocol: string
   token0Symbol: string
   token1Symbol: string
+  token0Address: string | null
+  token1Address: string | null
   feeTier: number | null
   tvlUsd: number
   /** Already converted to a percentage. */
@@ -122,37 +135,90 @@ export type PancakePool = {
 /**
  * PancakeSwap's own pool list.
  *
- * `apr24h` arrives as a decimal fraction. It is multiplied by 100 here, once,
- * so nothing downstream has to remember.
+ * Worth having for two reasons that only became clear once both sources were
+ * compared. DeFiLlama does carry PancakeSwap BSC pools — 41 of them — so the
+ * venue is not missing from a Llama-only view the way it first appeared. What
+ * Llama carries is *v2 only*: the deepest USDT venue on the chain is the v3
+ * USDT/USDC pool at roughly $41M, and it is absent from Llama entirely. A
+ * comparison drawn from Llama alone silently omits it.
+ *
+ * Three shape details, all of which this parser previously got wrong and so
+ * returned an empty list without complaining:
+ *
+ *   - the payload is `{ rows: [...] }`, not a bare array and not `{ data }`;
+ *   - it is cursor-paginated, 50 rows a page, sorted by TVL descending;
+ *   - `tvlUSD`, `apr24h` and `volumeUSD24h` arrive as *strings*, and `apr24h`
+ *     is a decimal fraction — 0.0094 is 0.94%, not 94 basis points of a
+ *     percent. Treating it as a percentage understates every Pancake venue a
+ *     hundredfold, which is exactly enough to make one never get picked.
  */
-export async function fetchPancakeV3Pools(opts: FetchOptions = {}): Promise<PancakePool[]> {
+export async function fetchPancakePools(
+  opts: FetchOptions & { protocols?: readonly PancakeProtocol[]; pages?: number } = {},
+): Promise<PancakePool[]> {
   const now = opts.now ?? Date.now()
-  if (!opts.fresh && pancakeCache && now - pancakeCache.at < CACHE_TTL_MS) return pancakeCache.value
-
-  const payload = await getJson(PANCAKE_EXPLORER_POOLS_URL, opts)
-  const rows = Array.isArray(payload) ? payload : (payload as { data?: unknown }).data
-  if (!Array.isArray(rows)) throw new Error('PancakeSwap explorer did not return an array')
-
-  const pools: PancakePool[] = []
-  for (const row of rows) {
-    if (typeof row !== 'object' || row === null) continue
-    const entry = row as Record<string, unknown>
-    const token0 = entry['token0'] as Record<string, unknown> | undefined
-    const token1 = entry['token1'] as Record<string, unknown> | undefined
-    const apr = num(entry['apr24h'])
-    pools.push({
-      id: String(entry['id'] ?? ''),
-      token0Symbol: String(token0?.['symbol'] ?? '?'),
-      token1Symbol: String(token1?.['symbol'] ?? '?'),
-      feeTier: num(entry['feeTier']),
-      tvlUsd: num(entry['tvlUSD']) ?? num(entry['tvlUsd']) ?? 0,
-      apr24hPct: apr === null ? null : apr * 100,
-      volumeUsd24h: num(entry['volumeUSD24h']) ?? num(entry['volumeUsd24h']),
-    })
+  const protocols = opts.protocols ?? (['v3', 'v2', 'stable'] as const)
+  const cacheKey = protocols.join(',')
+  if (!opts.fresh && pancakeCache && pancakeCache.key === cacheKey && now - pancakeCache.at < CACHE_TTL_MS) {
+    return pancakeCache.value
   }
 
-  pancakeCache = { at: now, value: pools }
+  const pools: PancakePool[] = []
+  const maxPages = opts.pages ?? 2
+
+  for (const protocol of protocols) {
+    let cursor: string | null = null
+    for (let page = 0; page < maxPages; page += 1) {
+      const url =
+        `${PANCAKE_EXPLORER_POOLS_URL}?chains=bsc&protocols=${protocol}` +
+        (cursor === null ? '' : `&after=${encodeURIComponent(cursor)}`)
+
+      const payload = (await getJson(url, opts)) as {
+        rows?: unknown
+        hasNextPage?: boolean
+        endCursor?: string
+      }
+      const rows = Array.isArray(payload.rows) ? payload.rows : []
+      for (const row of rows) {
+        if (typeof row !== 'object' || row === null) continue
+        const entry = row as Record<string, unknown>
+        const token0 = entry['token0'] as Record<string, unknown> | undefined
+        const token1 = entry['token1'] as Record<string, unknown> | undefined
+        const apr = num(entry['apr24h'])
+        pools.push({
+          id: String(entry['id'] ?? ''),
+          protocol: String(entry['protocol'] ?? protocol),
+          token0Symbol: String(token0?.['symbol'] ?? '?'),
+          token1Symbol: String(token1?.['symbol'] ?? '?'),
+          token0Address: token0?.['id'] === undefined ? null : String(token0['id']),
+          token1Address: token1?.['id'] === undefined ? null : String(token1['id']),
+          feeTier: num(entry['feeTier']),
+          tvlUsd: num(entry['tvlUSD']) ?? num(entry['tvlUsd']) ?? 0,
+          apr24hPct: apr === null ? null : apr * 100,
+          volumeUsd24h: num(entry['volumeUSD24h']) ?? num(entry['volumeUsd24h']),
+        })
+      }
+
+      if (payload.hasNextPage !== true || typeof payload.endCursor !== 'string') break
+      cursor = payload.endCursor
+    }
+  }
+
+  pancakeCache = { at: now, key: cacheKey, value: pools }
   return pools
+}
+
+/** Back-compat for the rebalancer's payback estimate, which wants v3 only. */
+export async function fetchPancakeV3Pools(opts: FetchOptions = {}): Promise<PancakePool[]> {
+  return fetchPancakePools({ ...opts, protocols: ['v3'] })
+}
+
+/** Pancake pools holding an asset, by symbol on either side. */
+export function pancakePoolsForAsset(pools: PancakePool[], asset: string): PancakePool[] {
+  const wanted = asset.toUpperCase()
+  return pools.filter(
+    (pool) =>
+      pool.token0Symbol.toUpperCase() === wanted || pool.token1Symbol.toUpperCase() === wanted,
+  )
 }
 
 export function resetYieldCaches(): void {

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 
 import { AddressLink } from '@/components/chain/links'
+import { SessionLifecycle } from '@/components/sessions/SessionLifecycle'
 import { RefusalFeed, SessionAddressForm, SessionList } from '@/components/sessions/SessionPanel'
 import { RelativeTime } from '@/components/time/RelativeTime'
 import { Card, CodeBlock, SectionHeading, Skeleton, SourceNote } from '@/components/ui'
@@ -50,7 +51,16 @@ export default async function SessionsPage({
   const suggestions =
     deployment === null
       ? []
-      : [{ label: `Hallmark's attestor (${deployment.attestor.slice(0, 8)}…)`, address: deployment.attestor }]
+      : [
+          {
+            label: `the wallet from the lifecycle above (${deployment.sessionProof.wallet.slice(0, 8)}…)`,
+            address: deployment.sessionProof.wallet,
+          },
+          {
+            label: `Hallmark's attestor (${deployment.attestor.slice(0, 8)}…)`,
+            address: deployment.attestor,
+          },
+        ]
 
   return (
     <div className={layout.page}>
@@ -62,6 +72,14 @@ export default async function SessionsPage({
           lead="An agent you hired never holds your funds. It holds a key that names what it may call, caps what it may spend, and dies on a date you set — registered in a public Keystore that anybody, including you, can read without asking us."
         />
       </header>
+
+      {/* The worked lifecycle first: it is the only thing on this page that
+          proves a key has actually held and then lost authority on a chain. */}
+      <Suspense fallback={<Skeleton height="14rem" />}>
+        <SessionLifecycle chainId={chainId} />
+      </Suspense>
+
+      <div style={{ height: 'var(--sp-6)' }} />
 
       <SessionAddressForm chainId={chainId} address={address} suggestions={suggestions} />
 

@@ -129,15 +129,22 @@ const cachedAgentPage = unstable_cache(
   { revalidate: 60, tags: ['agent-index'] },
 )
 
-/** How long a page render will wait on the index before rendering without it. */
-const INDEX_DEADLINE_MS = 12_000
+/**
+ * How long a page render will wait on the index before rendering without it.
+ *
+ * Six seconds, not twelve. The index has slow days — some filters take ten
+ * seconds when it is healthy and time out entirely when it is not — and a page
+ * that waits twelve seconds to show the same rows has simply chosen to be slow.
+ * Past this the surface renders from the chain and says the index is missing.
+ */
+const INDEX_DEADLINE_MS = 5_000
 
 /**
  * Tighter on a detail page, because there the index is strictly supplementary:
  * the registration file, the evidence, the reputation and the validations all
  * come from the chain, and the page is complete and honest without it.
  */
-const INDEX_DETAIL_DEADLINE_MS = 6_000
+const INDEX_DETAIL_DEADLINE_MS = 2_500
 
 export type AgentRow = {
   chainId: SupportedChainId
@@ -688,6 +695,34 @@ export type AgentDetail = {
  * twice. Per-request only — nothing is carried between requests, because
  * liveness is the one thing on this page that must never be stale.
  */
+/**
+ * Just enough to title a page: the owner and the name, from the chain alone.
+ *
+ * One multicall — `ownerOf` and `tokenURI` — and a synchronous parse. No index,
+ * so nothing here can be slowed down by it, and no reputation or validation
+ * reads, which are the expensive half of the full detail model.
+ *
+ * The hire page uses this instead of `getAgentDetail` because it needs a name
+ * and a payee, not a dossier, and blocking the activation step of the journey
+ * on a dossier it never renders was costing six seconds.
+ */
+export const getAgentIdentity = cache(async function getAgentIdentity(
+  chainId: SupportedChainId,
+  agentId: number,
+): Promise<{ name: string; owner: `0x${string}` | null; description: string | null } | null> {
+  const onChain = await readerFor(chainId)
+    .getAgent(agentId)
+    .catch(() => null)
+  if (onChain === null) return null
+
+  const card = onChain.card.ok ? onChain.card.card : null
+  return {
+    name: card?.name ?? `Agent #${agentId}`,
+    owner: onChain.owner,
+    description: card?.description ?? null,
+  }
+})
+
 export const getAgentDetail = cache(async function getAgentDetail(
   chainId: SupportedChainId,
   agentId: number,
@@ -702,6 +737,16 @@ export const getAgentDetail = cache(async function getAgentDetail(
   // seconds before the client crosses over to its second base) the page still
   // renders everything that matters, and says the index is missing rather than
   // making the reader wait forty seconds for a second opinion.
+  // Kicked off here rather than in the phase below, because it depends on
+  // nothing from it. Left as a floating promise on purpose: awaited later, but
+  // started now so its deadline overlaps the detail fetch's instead of running
+  // after it. Two six-second budgets in series is a twelve-second page.
+  const indexedFeedbackPromise = withDeadline(
+    fetchFeedbacks(chainId, String(agentId)).catch(() => null),
+    INDEX_DETAIL_DEADLINE_MS,
+    null,
+  )
+
   const [onChain, scanDetail, hallmark, hookConfig] = await Promise.all([
     reader.getAgent(agentId).catch(() => null),
     withDeadline(
@@ -760,13 +805,8 @@ export const getAgentDetail = cache(async function getAgentDetail(
   const [clients, validationHashes, indexedFeedback] = await Promise.all([
     reader.feedbackClients(agentId).catch(() => null),
     reader.agentValidations(agentId).catch(() => null),
-    // Same treatment: the values and tags come from the registry above, and
-    // this only adds the transaction that wrote each one.
-    withDeadline(
-      fetchFeedbacks(chainId, String(agentId)).catch(() => null),
-      INDEX_DETAIL_DEADLINE_MS,
-      null,
-    ),
+    // Started before the phase above; only awaited here.
+    indexedFeedbackPromise,
   ])
 
   const [feedback, validations] = await Promise.all([

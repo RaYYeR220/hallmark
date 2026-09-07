@@ -229,3 +229,37 @@ export function scanPrivileges(args: { address: string; bytecode: Hex }): Privil
           `${counts.medium} medium, ${counts.low} low).`,
   }
 }
+
+/**
+ * Contracts the token itself names, and who owns them.
+ *
+ * A token can be renounced and still be controlled, because the privilege
+ * lives one hop away: a `taxProcessor` or a `dividendContract` with its own
+ * non-renounced owner is a real privilege surface, and a scan that stops at
+ * the token address cannot see it. An independent review found exactly that on
+ * a token this agent had already called clean at the token level.
+ *
+ * The getters below are the ones that appear in the wild. Each is tried, and
+ * anything that answers with a contract address is followed and its ownership
+ * read.
+ */
+export const AUXILIARY_GETTERS = [
+  'taxProcessor',
+  'dividendContract',
+  'dividendTracker',
+  'treasury',
+  'marketingWallet',
+  'feeReceiver',
+  'rewardToken',
+  'swapRouter',
+  'router',
+  'pair',
+] as const
+
+export const auxiliaryGetterAbi = AUXILIARY_GETTERS.map((name) => ({
+  type: 'function' as const,
+  name,
+  stateMutability: 'view' as const,
+  inputs: [],
+  outputs: [{ name: '', type: 'address' as const }],
+}))
