@@ -22,8 +22,9 @@ import type { EvidenceStore, RunRecord } from './store.ts'
 import { computeStats, formatStats } from './stats.ts'
 import { selectAgents } from './select.ts'
 import { canonicalBundleJson } from './evidence.ts'
-import { createPublisher, formatPlan, FEEDBACK_TAGS } from './publish.ts'
-import type { FeedbackTag } from './publish.ts'
+import { createPublisher, formatPlan } from './publish.ts'
+import { ALL_TAGS, DEFAULT_TAGS, TagValueError, resolveTag } from './tags.ts'
+import type { FeedbackTag } from './tags.ts'
 import type { ProbeRun, PublishOutcome } from './types.ts'
 import { formatEther } from 'viem'
 
@@ -36,7 +37,7 @@ usage
   hallmark-probe probe    --agent <id> [--chain 56|97] [--json]
   hallmark-probe publish  [--chain 56|97] [--commit] [--budget-wei N] [--min-score N]
                           [--agent <id>] [--limit N] [--kind reputation|hook|validation|all]
-                          [--tag reachable|uptime|responsetime] [--as 0x<sender>]
+                          [--tags reachable,successRate,responseTime] [--as 0x<sender>]
                           [--allow-web-only] [--json]
   hallmark-probe verify   <0x-evidence-hash | https://…/api/evidence/0x…> [--chain 56|97] [--json]
   hallmark-probe stats    [--chain 56|97] [--json]
@@ -85,6 +86,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       limit: { type: 'string' },
       kind: { type: 'string' },
       tag: { type: 'string' },
+      tags: { type: 'string' },
       'min-score': { type: 'string' },
       'budget-wei': { type: 'string' },
       'gas-price-wei': { type: 'string' },
@@ -241,7 +243,7 @@ async function runPublish(deps: CommandDeps): Promise<number> {
   const kind = String(values['kind'] ?? 'all')
   const minScore = values['min-score'] === undefined ? 1 : Number(values['min-score'])
   const limit = values['limit'] === undefined ? 25 : Number(values['limit'])
-  const tag = tagOf(values['tag'])
+  const tags = tagsOf(values)
 
   const budgetOverride = values['budget-wei'] === undefined ? undefined : BigInt(String(values['budget-wei']))
   const publisher = createPublisher({
@@ -250,8 +252,8 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     store,
     dryRun: !commit,
     minScore,
-    requireProtocolLive: values['allow-web-only'] !== true,
-    feedbackTag: tag,
+    requireDeclaredProtocol: values['allow-web-only'] !== true,
+    feedbackTags: tags,
     ...(values['gas-price-wei'] === undefined ? {} : { gasPriceWei: BigInt(String(values['gas-price-wei'])) }),
     ...(values['as'] === undefined ? {} : { plannerAddress: asAddress(values['as']) }),
     config: {
@@ -273,15 +275,15 @@ async function runPublish(deps: CommandDeps): Promise<number> {
     chain: chainId,
     agents: candidates.length,
     kinds: kind,
-    strict: values['allow-web-only'] === true ? 'off (--allow-web-only)' : 'protocol-live required',
+    scope: values['allow-web-only'] === true ? 'any reachable agent' : 'agents declaring a protocol',
     attestor: publisher.attestor ?? '(unset)',
     validator: publisher.validator ?? '(unset)',
-    tag,
+    tags: tags.join(','),
   })
 
   const outcomes: PublishOutcome[] = []
   for (const record of candidates) {
-    if (kind === 'all' || kind === 'reputation') outcomes.push(await publisher.publishReputation(record))
+    if (kind === 'all' || kind === 'reputation') outcomes.push(...(await publisher.publishReputation(record)))
     if (kind === 'all' || kind === 'hook') outcomes.push(await publisher.recordProbeOnHook(record))
     if (kind === 'all' || kind === 'validation') {
       const requestHash = values['request-hash'] === undefined ? undefined : (String(values['request-hash']) as `0x${string}`)
@@ -301,7 +303,7 @@ async function runPublish(deps: CommandDeps): Promise<number> {
           chainId,
           commit,
           minScore,
-          tag,
+          tags,
           outcomes,
           budget: {
             perRunWei: budget.perRunWei.toString(),
@@ -451,10 +453,28 @@ function asAddress(value: unknown): `0x${string}` {
   return raw as `0x${string}`
 }
 
-function tagOf(value: unknown): FeedbackTag {
-  const raw = String(value ?? 'reachable')
-  if ((FEEDBACK_TAGS as readonly string[]).includes(raw)) return raw as FeedbackTag
-  throw new Error(`--tag must be one of ${FEEDBACK_TAGS.join(', ')}`)
+/**
+ * `--tags a,b,c` overrides the default set. An unknown tag is a hard error, not
+ * a silent fallback: the tag decides how a reader interprets the number, and a
+ * wrong one publishes a false claim.
+ */
+function tagsOf(values: Values): FeedbackTag[] {
+  const raw = values['tags'] ?? values['tag']
+  if (raw === undefined) return DEFAULT_TAGS
+  const parts = String(raw)
+    .split(/[,\s]+/)
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+  if (parts.length === 0) return DEFAULT_TAGS
+  try {
+    return parts.map(resolveTag)
+  } catch (err) {
+    if (err instanceof TagValueError) {
+      throw new Error(`${err.message}
+  known tags: ${ALL_TAGS.join(', ')}`)
+    }
+    throw err
+  }
 }
 
 function optionalNumber(values: Values, key: string, as: string): Record<string, number> {

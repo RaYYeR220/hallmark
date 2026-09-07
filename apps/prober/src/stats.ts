@@ -8,6 +8,7 @@
 import { FAILURE_CLASSES } from './types.ts'
 import type { FailureClass } from './types.ts'
 import { percentile } from './score.ts'
+import { declaresMachineProtocol } from './tags.ts'
 import type { RunRecord } from './store.ts'
 
 export type LatencyStats = {
@@ -62,9 +63,6 @@ export type SweepStats = {
 
 const SCORE_BUCKETS = ['0', '1-24', '25-49', '50-74', '75-89', '90-100'] as const
 
-/** Endpoint kinds that claim a machine-callable agent protocol. */
-const MACHINE_CALLABLE = new Set(['a2a', 'mcp', 'x402', 'oasf'])
-
 function hostOf(endpoint: string | null): string | null {
   if (endpoint === null) return null
   try {
@@ -112,7 +110,7 @@ export function computeStats(records: RunRecord[]): SweepStats {
     if (record.okCount > 0) reachable += 1
     if (record.scoredCount > 0 && record.okCount === record.scoredCount) fullyReachable += 1
     if (record.protocolOkCount > 0) protocolConformant += 1
-    if (record.kinds.some((kind) => MACHINE_CALLABLE.has(kind))) declaringAgents += 1
+    if (declaresMachineProtocol(record)) declaringAgents += 1
     if (record.protocolLive) {
       protocolLiveAgents += 1
       for (const kind of record.protocolLiveKinds) {

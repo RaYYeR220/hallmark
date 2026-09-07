@@ -126,6 +126,8 @@ One more thing the experiment showed, and it is an argument for the strict metri
 
 > Of ~338,000 ERC-8004 agents registered on BNB Smart Chain, a 6,000-agent sample (seed 42, ceiling 338,235) found **28 agents — 0.47%, one in 214 — serving a working agent protocol, behind 5 distinct hosts.** About 10% of agents declare a machine-callable protocol; under 5% of those answer. An independent census of a different 6,000-agent sample found 23 across 3 hosts.
 
+**Three independent measurements now exist**, from three code paths and three different draws: **23/6,000** (census harness), **28/6,000** (this prober, seed 42, ceiling 338,235) and **6/3,000** (this prober, seed 20260908) — 0.38%, 0.47% and 0.20%. All three land in the same 0.2-0.5% band, and the third surfaced two hosts the first two never drew (`x402.quickintel.io` and a `bubbleupdappos.workers.dev` host), which is exactly what operator clustering predicts. Triangulating across samples is how you get an order of magnitude you can defend; no single draw gives you one.
+
 Agent counts are reported with the caveat that they are operator-clustered — "28 live agents" is not 28 independent teams. `stats` prints `protocol-live hosts` directly beneath `PROTOCOL-LIVE (strict)` for exactly this reason.
 
 ### Why the rules are strict
@@ -176,43 +178,44 @@ This is the core design constraint of the whole service.
 
 Both quirks are covered by `test/registry-semantics.test.ts`, which drives the real `createRegistryReader` through a fake transport and asserts on the calldata that would actually go out.
 
-### Tags
+### What we write on chain, and what it means
 
-The standard's own liveness vocabulary, not invented ones.
+The Reputation Registry stores `(int128 value, uint8 valueDecimals)` under a tag, and **the tag is not a label — it is a type.** The standard's example vocabulary is explicit: `starred` is 0-100, `reachable` and `ownerVerified` are booleans, `uptime` is a percent x100, `successRate` is a percent, `responseTime` is milliseconds, `blocktimeFreshness` is blocks.
 
-| `--tag` | `value` | `valueDecimals` | notes |
+Writing a graded 0-100 score into `reachable` is non-conformant, and worse, it publishes the exact conflation this service exists to refuse. So one probe run produces **one write per applicable tag**, each carrying a claim that is true on its own terms:
+
+| tag | type | what Hallmark writes | when |
 | --- | --- | --- | --- |
-| `reachable` *(default)* | the 0–100 score | 0 | what `HallmarkHook` reads |
-| `uptime` | share of endpoints that answered, ×10,000 | 2 | the standard's "%×100" convention |
-| `responsetime` | median round trip in ms | 0 | |
+| `reachable` | bool | **100** or **0**. 100 = at least one declared endpoint answered at all. | always |
+| `successRate` | percent | **100** or **0**. 100 = at least one endpoint is protocol-live by the strict rule; 0 = it declares a protocol and none of them speak it. | only when the agent declares a machine-callable protocol, **or** proved one regardless of how its card labelled it |
+| `responseTime` | ms | median round trip across the endpoints that answered | opt-in, `--tags …,responseTime` |
 
 `tag2` is always `hallmark`, so our writes are filterable.
 
-### ⚠️ The attestor and the validator must be the same address
+Three rules behind that table:
 
-This is a hard deployment constraint and it fails **silently**, so it is worth stating plainly before anyone loses an afternoon to it.
+- **A boolean tag gets a boolean value.** `assertTagValue` throws — not warns — on any value that violates its tag's type, and every encoder runs through it. A warning would still let a non-conformant attestation reach the chain, and the chain is not somewhere you can take it back. `--tags liveness` is a hard error that prints the vocabulary.
+- **`successRate` is never written for an agent that declares no protocol.** There is no rate to report, and a 0 there would be a slur rather than a measurement. The one exception cuts the other way: an agent whose endpoint is labelled `web` but answers with a valid x402 challenge has *demonstrably* got a working protocol, so it gets `successRate: 100`. Evidence beats the label; a label alone never manufactures a positive claim.
+- **We do not invent private tags where the standard has one.** Everything the vocabulary cannot express — the graded score, the per-endpoint breakdown, the failure classification, the discovered capabilities, the block height — lives in the evidence bundle, which every attestation links by URI and commits to by hash. **The chain carries claims that are true and typed; the bundle carries the detail.**
 
-`HallmarkHook` only credits evidence that came from the attestor:
+Why `reachable` and `successRate` rather than one number: we measured the difference. Quadrupling the probe timeout moves `reachable` by **+448 agents** and `protocolLive` by **+1**. They are not the same claim and a single tag cannot honestly carry both.
 
-```solidity
-// _reputationEvidence
-clients[0] = attestor;
-reputation.getSummary(agentId, clients, REACHABLE_TAG, "")  // needs count > 0 && value > 0
+A worked example, as the dry run prints it for a real mainnet agent:
 
-// _validationEvidence
-if (validatorAddress == att && recordAgentId == agentId && recordLastUpdate != 0) { … }
+```
+reputation agent 6255  score 82
+  giveFeedback -> 0x8004BAa17C55a88189AE136b182e5fdA19dE9b63
+  arg[1]   100          <- value
+  arg[3]   reachable    <- bool: something answered
+  gas       320000 @ 50000000 wei     cost 0.000016 BNB
+
+reputation agent 6255  score 82
+  arg[1]   100
+  arg[3]   successRate  <- percent: the protocol actually worked
+  gas       200000 @ 50000000 wei     cost 0.00001 BNB
 ```
 
-So if `ATTESTOR_PRIVATE_KEY` and `VALIDATOR_PRIVATE_KEY` are different addresses, **the funding gate never opens, no matter how much evidence you publish.** Every write succeeds. Every receipt is green. `isHireable` keeps returning false and `fund` keeps reverting `NoFreshEvidence`, with nothing anywhere explaining why. There is no error to catch, because from the registry's point of view nothing went wrong — the evidence is simply addressed to somebody the hook does not trust.
-
-Hallmark's deployment uses one address for both (`0x9ff98B99B6B250b3a23961EA932F4ef147B909ab`). `createPublisher` compares the two keys at startup and, if they differ, prints a boxed error naming both addresses and the two contract functions responsible, before it does anything else.
-
-Two consequences fall out of the same design:
-
-- **feedback must come from the attestor key**, not from any convenient address — the unsolicited path works from anyone, but only the attestor's writes are visible to the gate;
-- **a score of 0 is never published**, because `value > 0` is required; the publisher refuses it rather than writing a row that can never count.
-
-`HallmarkHook._reputationEvidence` also pins the tag: it reads `REACHABLE_TAG`, which is why `--tag reachable` is the default and the other two tags are supplementary.
+The second write is cheaper because only the first `giveFeedback` for an (agent, client) pair allocates fresh storage — measured 213,948 then 132,140 — and the plan is costed accordingly rather than at a flat rate.
 
 ### Gas: why we do not trust `eth_estimateGas`
 

@@ -5,7 +5,6 @@ import {
   buildPlan,
   clampToUint8,
   createBudgetGuard,
-  encodeFeedback,
   findPendingRequest,
   formatPlan,
 } from '../src/publish.ts'
@@ -105,37 +104,6 @@ describe('budget guard', () => {
 })
 
 describe('feedback encoding', () => {
-  it('puts the 0-100 score under the standard "reachable" tag with no decimals', () => {
-    expect(encodeFeedback(record({ score: 84 }), 'reachable')).toEqual({
-      value: 84n,
-      valueDecimals: 0,
-      tag1: 'reachable',
-    })
-  })
-
-  it('encodes uptime as a percent scaled by 100, per the standard convention', () => {
-    const encoded = encodeFeedback(record({ okCount: 3, scoredCount: 4 }), 'uptime')
-    expect(encoded).toEqual({ value: 7_500n, valueDecimals: 2, tag1: 'uptime' })
-  })
-
-  it('encodes responsetime as the median round trip in milliseconds', () => {
-    expect(encodeFeedback(record({ latencies: [100, 200, 900] }), 'responsetime')).toEqual({
-      value: 200n,
-      valueDecimals: 0,
-      tag1: 'responsetime',
-    })
-  })
-
-  it('never produces a value the hook would ignore for a scoring agent', () => {
-    // HallmarkHook._reputationEvidence requires count > 0 AND value > 0.
-    expect(encodeFeedback(record({ score: 1 }), 'reachable').value).toBeGreaterThan(0n)
-  })
-
-  it('produces zero for a dead agent, which the publisher then refuses to write', () => {
-    expect(encodeFeedback(record({ score: 0 }), 'reachable').value).toBe(0n)
-    expect(encodeFeedback(record({ okCount: 0, scoredCount: 3 }), 'uptime').value).toBe(0n)
-  })
-
   it('clamps a score into uint8 range', () => {
     expect(clampToUint8(101)).toBe(101)
     expect(clampToUint8(-4)).toBe(0)
@@ -235,22 +203,23 @@ describe('dry run', () => {
   }
 
   it('spends the budget down across a plan instead of costing each write alone', async () => {
-    // One giveFeedback at 320,000 gas and 0.1 gwei is 3.2e13 wei. Room for one.
-    const publisher = await planner(50_000_000_000_000n)
+    // giveFeedback at 320,000 gas and 0.1 gwei is 3.2e13 wei; the repeat write
+    // is 2.0e13. One agent writing reachable + successRate costs 5.2e13.
+    const publisher = await planner(60_000_000_000_000n)
 
     const first = await publisher.publishReputation(record({ agentId: 1 }))
     const second = await publisher.publishReputation(record({ agentId: 2 }))
 
-    expect(first.status).toBe('dry-run')
-    expect(second.status).toBe('skipped')
-    if (second.status === 'skipped') expect(second.reason).toMatch(/per-run budget exhausted/)
+    expect(first.map((o) => o.status)).toEqual(['dry-run', 'dry-run'])
+    expect(second.every((o) => o.status === 'skipped')).toBe(true)
+    expect(second.some((o) => o.status === 'skipped' && /per-run budget exhausted/.test(o.reason))).toBe(true)
   })
 
   it('plans without any private key when given a sender address', async () => {
     const publisher = await planner(10_000_000_000_000_000n)
-    const outcome = await publisher.publishReputation(record())
-    expect(outcome.status).toBe('dry-run')
-    expect(outcome.plan.from).toBe('0x9ff98B99B6B250b3a23961EA932F4ef147B909ab')
+    const outcomes = await publisher.publishReputation(record())
+    expect(outcomes.every((o) => o.status === 'dry-run')).toBe(true)
+    expect(outcomes[0]?.plan.from).toBe('0x9ff98B99B6B250b3a23961EA932F4ef147B909ab')
     expect(publisher.dryRun).toBe(true)
   })
 
@@ -278,16 +247,18 @@ describe('dry run', () => {
       plannerAddress: owner,
     })
 
-    const outcome = await publisher.publishReputation(record())
-    expect(outcome.status).toBe('skipped')
-    if (outcome.status === 'skipped') expect(outcome.reason).toMatch(/self-feedback/)
+    const outcomes = await publisher.publishReputation(record())
+    expect(outcomes[0]?.status).toBe('skipped')
+    const first = outcomes[0]
+    if (first?.status === 'skipped') expect(first.reason).toMatch(/self-feedback/)
   })
 
   it('refuses to write feedback for a dead agent', async () => {
     const publisher = await planner(10_000_000_000_000_000n)
-    const outcome = await publisher.publishReputation(record({ score: 0 }))
-    expect(outcome.status).toBe('skipped')
-    if (outcome.status === 'skipped') expect(outcome.reason).toMatch(/min-score/)
+    const outcomes = await publisher.publishReputation(record({ score: 0 }))
+    const first = outcomes[0]
+    expect(first?.status).toBe('skipped')
+    if (first?.status === 'skipped') expect(first.reason).toMatch(/min-score/)
   })
 
   it('refuses to write into a fee spike', async () => {
@@ -305,9 +276,10 @@ describe('dry run', () => {
       plannerAddress: '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab',
     })
 
-    const outcome = await publisher.publishReputation(record())
-    expect(outcome.status).toBe('skipped')
-    if (outcome.status === 'skipped') expect(outcome.reason).toMatch(/fee spike/)
+    const outcomes = await publisher.publishReputation(record())
+    const first = outcomes[0]
+    expect(first?.status).toBe('skipped')
+    if (first?.status === 'skipped') expect(first.reason).toMatch(/fee spike/)
   })
 })
 

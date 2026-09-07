@@ -44,6 +44,15 @@ import {
 import type { RegistryReader, SupportedChainId } from '@hallmark/core'
 
 import { hallmarkHookAbi } from './abi.ts'
+import {
+  DEFAULT_TAGS,
+  HALLMARK_TAG,
+  declaresMachineProtocol,
+  hasSuccessRate,
+  planFeedbackTags,
+  resolveTag,
+} from './tags.ts'
+import type { EncodedFeedback, FeedbackTag } from './tags.ts'
 import { evidenceUri } from './evidence.ts'
 import { silentLogger } from './log.ts'
 import type { Logger } from './log.ts'
@@ -60,6 +69,8 @@ import type { PublishKind, PublishOutcome, PublishPlan } from './types.ts'
  */
 export const GAS_LIMITS = {
   giveFeedback: 320_000n,
+  /** Second and later writes for the same (agent, client) pair: measured 132,140. */
+  giveFeedbackRepeat: 200_000n,
   validationRequest: 320_000n,
   validationResponse: 220_000n,
   recordProbe: 140_000n,
@@ -72,18 +83,15 @@ export const ESTIMATE_HEADROOM_DENOMINATOR = 100n
 /** BSC has sat at 0.05 gwei for months; anything past this is a fee spike, not a fee. */
 export const MAX_ACCEPTABLE_GAS_PRICE = parseGwei('5')
 
-/** ERC-8004's own tag vocabulary for liveness. Nothing invented. */
-export const FEEDBACK_TAGS = ['reachable', 'uptime', 'responsetime'] as const
-export type FeedbackTag = (typeof FEEDBACK_TAGS)[number]
-
-/** Stamped as `tag2` on every entry so Hallmark's writes are filterable. */
-export const HALLMARK_TAG = 'hallmark'
-
 export const DEFAULT_VALIDATION_TAG = 'reachable'
 
-const PROTOCOL_LIVE_REFUSAL =
-  'no endpoint is protocol-live (a valid A2A card with skills, an MCP server that enumerated tools, ' +
-  'or a decodable x402 challenge); a reachable web page is not an agent. Pass --allow-web-only to override.'
+// The tag vocabulary, its types and its encoders live in `tags.ts`.
+export { DEFAULT_TAGS, HALLMARK_TAG, TAG_VOCABULARY, TagValueError, assertTagValue, resolveTag } from './tags.ts'
+export type { EncodedFeedback, FeedbackTag } from './tags.ts'
+
+const NO_DECLARED_PROTOCOL =
+  'the agent declares no machine-callable protocol (a2a / mcp / x402), so there is no successRate to attest ' +
+  'and a bare reachable entry would say little. Pass --allow-web-only to publish it anyway.'
 
 const NO_ATTESTOR = 'no attestor address: set ATTESTOR_PRIVATE_KEY, or pass --as <address> to plan a dry run'
 const NO_VALIDATOR = 'no validator address: set VALIDATOR_PRIVATE_KEY, or pass --as <address> to plan a dry run'
@@ -167,12 +175,13 @@ export type PublisherOptions = {
   gasPriceWei?: bigint
   minScore?: number
   /**
-   * Publish only agents that pass the strict protocol-live test. Defaults to
-   * true, because a `web` face returning HTML is the single largest source of
-   * a false "alive" reading and we refuse to put that on chain.
+   * Publish only agents that declare a machine-callable protocol. Defaults to
+   * true: for an agent that is nothing but a web page there is no `successRate`
+   * to report, and `reachable` alone says little worth paying gas for.
    */
-  requireProtocolLive?: boolean
-  feedbackTag?: FeedbackTag
+  requireDeclaredProtocol?: boolean
+  /** Which vocabulary tags to write. Defaults to `reachable` + `successRate`. */
+  feedbackTags?: FeedbackTag[]
   validationTag?: string
   /**
    * Plan as if this address were signing. Dry run only, and only when the
@@ -192,7 +201,8 @@ export type Publisher = {
   gasPrice(): Promise<bigint>
   budget(): BudgetState
   /** Unsolicited: works from any address that is not the agent's own controller. */
-  publishReputation(record: RunRecord): Promise<PublishOutcome>
+  /** One write per applicable vocabulary tag, so a run is one coherent record. */
+  publishReputation(record: RunRecord): Promise<PublishOutcome[]>
   /** Opt-in: only answers a `validationRequest` the agent's owner already made. */
   publishValidation(record: RunRecord, requestHash?: `0x${string}`): Promise<PublishOutcome>
   /** Hallmark's own freshness clock, which the ERC-8004 registries do not provide. */
@@ -209,8 +219,8 @@ export function createPublisher(options: PublisherOptions): Publisher {
   const client = reader.client as PublicClient
   const dryRun = options.dryRun !== false
   const minScore = options.minScore ?? 1
-  const requireProtocolLive = options.requireProtocolLive !== false
-  const feedbackTag: FeedbackTag = options.feedbackTag ?? 'reachable'
+  const requireDeclaredProtocol = options.requireDeclaredProtocol !== false
+  const feedbackTags: FeedbackTag[] = options.feedbackTags ?? DEFAULT_TAGS
   const validationTag = options.validationTag ?? DEFAULT_VALIDATION_TAG
 
   const attestorAccount = accountFrom(config.attestorPrivateKey)
@@ -413,145 +423,182 @@ export function createPublisher(options: PublisherOptions): Publisher {
 
     async publishReputation(runRecord) {
       const uri = evidenceUri(config.evidenceBaseUrl, runRecord.evidenceHash)
-      const encoded = encodeFeedback(runRecord, feedbackTag)
       const endpoint = runRecord.primaryEndpoint ?? ''
       const price = await gasPrice()
-      const plan = buildPlan({
-        kind: 'reputation',
-        chainId,
-        agentId: runRecord.agentId,
-        to: chain.contracts.reputationRegistry,
-        from: attestorAddress ?? '(no attestor address)',
-        functionName: 'giveFeedback',
-        args: [
-          String(runRecord.agentId),
-          encoded.value.toString(),
-          String(encoded.valueDecimals),
-          encoded.tag1,
-          HALLMARK_TAG,
-          endpoint,
-          uri,
-          runRecord.evidenceHash,
-        ],
-        gasLimit: GAS_LIMITS.giveFeedback,
-        gasPriceWei: price,
-        evidenceHash: runRecord.evidenceHash,
-        evidenceUri: uri,
-        score: runRecord.score,
-      })
 
-      if (attestorAddress === null) return skip(plan, NO_ATTESTOR)
-      if (runRecord.score < minScore) {
-        return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
-      }
-      if (requireProtocolLive && !runRecord.protocolLive) {
-        return skip(plan, PROTOCOL_LIVE_REFUSAL)
-      }
-      if (encoded.value <= 0n) {
-        return skip(
-          plan,
-          `encoded feedback value is ${encoded.value}; HallmarkHook requires value > 0 for the "reachable" tag to count as evidence`,
-        )
-      }
-      const priceRefusal = gasPriceRefusal(price)
-      if (priceRefusal !== null) return skip(plan, priceRefusal)
+      // One agent, one attestation per applicable tag. `reachable` says the
+      // socket answered; `successRate` says the protocol worked; they are
+      // different claims and they get different entries.
+      const encoded = planFeedbackTags(runRecord, feedbackTags)
 
-      // The registry rejects feedback from the agent's own controller, so
-      // check the owner rather than letting the node hand back a bare revert.
-      const agent = await reader.getAgent(runRecord.agentId).catch(() => null)
-      if (agent === null) return skip(plan, `agent ${runRecord.agentId} is not registered on chain ${chainId}`)
-      if (agent.owner.toLowerCase() === attestorAddress.toLowerCase()) {
-        return skip(plan, 'the attestor owns this agent; the Reputation Registry rejects self-feedback')
-      }
-
-      const budgetRefusal = budget.check(BigInt(plan.costWei))
-      if (budgetRefusal !== null) return skip(plan, budgetRefusal)
-      // A dry run holds the reservation too, so the plan shows exactly where
-      // the ceiling would stop it rather than costing every write in isolation.
-      if (dryRun) {
-        budget.reserve(BigInt(plan.costWei))
-        return { plan, status: 'dry-run' }
-      }
-      if (attestorAccount === null) return skip(plan, NO_ATTESTOR)
-
-      const gas = await gasLimitFor(GAS_LIMITS.giveFeedback, () =>
-        client.estimateContractGas({
-          address: chain.contracts.reputationRegistry,
-          abi: reputationRegistryAbi,
+      const planFor = (entry: EncodedFeedback, index: number): PublishPlan =>
+        buildPlan({
+          kind: 'reputation',
+          chainId,
+          agentId: runRecord.agentId,
+          to: chain.contracts.reputationRegistry,
+          from: attestorAddress ?? '(no attestor address)',
           functionName: 'giveFeedback',
           args: [
-            BigInt(runRecord.agentId),
-            encoded.value,
-            encoded.valueDecimals,
-            encoded.tag1,
+            String(runRecord.agentId),
+            entry.value.toString(),
+            String(entry.valueDecimals),
+            entry.tag1,
             HALLMARK_TAG,
             endpoint,
             uri,
             runRecord.evidenceHash,
           ],
-          account: attestorAccount,
-        }),
-      )
-      logger.debug('gas limit chosen', { kind: 'reputation', limit: gas.limit, note: gas.note })
-      const finalPlan: PublishPlan = {
-        ...plan,
-        gasLimit: gas.limit.toString(),
-        costWei: (gas.limit * price).toString(),
+          // Only the first write for an (agent, client) pair allocates fresh
+          // storage; the rest are measurably cheaper.
+          gasLimit: index === 0 ? GAS_LIMITS.giveFeedback : GAS_LIMITS.giveFeedbackRepeat,
+          gasPriceWei: price,
+          evidenceHash: runRecord.evidenceHash,
+          evidenceUri: uri,
+          score: runRecord.score,
+        })
+
+      const refuseAll = async (reason: string): Promise<PublishOutcome[]> => {
+        const shown = encoded.length > 0 ? encoded : [{ tag1: 'reachable' as const, value: 0n, valueDecimals: 0, reason }]
+        return [await skip(planFor(shown[0] as EncodedFeedback, 0), reason)]
       }
 
-      const refusalAfterEstimate = budget.check(BigInt(finalPlan.costWei))
-      if (refusalAfterEstimate !== null) return skip(finalPlan, refusalAfterEstimate)
+      if (attestorAddress === null) return refuseAll(NO_ATTESTOR)
+      if (runRecord.score < minScore) {
+        return refuseAll(`score ${runRecord.score} is below the --min-score floor of ${minScore}`)
+      }
+      // `hasSuccessRate`, not `declaresMachineProtocol`: an agent that proved a
+      // working protocol is worth attesting even if its card mislabelled it.
+      if (requireDeclaredProtocol && !hasSuccessRate(runRecord)) {
+        return refuseAll(NO_DECLARED_PROTOCOL)
+      }
+      if (encoded.length === 0) {
+        return refuseAll('no tag in the ERC-8004 vocabulary applies to this run')
+      }
+      const priceRefusal = gasPriceRefusal(price)
+      if (priceRefusal !== null) return refuseAll(priceRefusal)
 
-      const reservedWei = BigInt(finalPlan.costWei)
-      budget.reserve(reservedWei)
+      // The registry rejects feedback from the agent's own controller, so
+      // check the owner rather than letting the node hand back a bare revert.
+      const agent = await reader.getAgent(runRecord.agentId).catch(() => null)
+      if (agent === null) return refuseAll(`agent ${runRecord.agentId} is not registered on chain ${chainId}`)
+      if (agent.owner.toLowerCase() === attestorAddress.toLowerCase()) {
+        return refuseAll('the attestor owns this agent; the Reputation Registry rejects self-feedback')
+      }
 
-      // 1-based, and `getLastIndex` returns the count rather than the newest
-      // index. `readFeedback(agentId, client, 0)` reverts.
-      const before = (await reader.lastFeedbackIndex(runRecord.agentId, attestorAccount.address)) ?? 0
+      const outcomes: PublishOutcome[] = []
 
-      return send({
-        plan: finalPlan,
-        account: attestorAccount,
-        reservedWei,
-        write: (nonce, gasLimit, gasPriceWei) =>
-          walletFor(attestorAccount).writeContract({
+      for (const [index, entry] of encoded.entries()) {
+        const plan = planFor(entry, index)
+
+        if (entry.value === 0n) {
+          // Legitimate and deliberate, but it will not open the funding gate:
+          // HallmarkHook requires value > 0 on the `reachable` tag.
+          logger.info('writing a zero-valued attestation', {
+            agentId: runRecord.agentId,
+            tag: entry.tag1,
+            why: entry.reason,
+            note: 'honest, but does not count as hook evidence',
+          })
+        }
+
+        const budgetRefusal = budget.check(BigInt(plan.costWei))
+        if (budgetRefusal !== null) {
+          outcomes.push(await skip(plan, budgetRefusal))
+          continue
+        }
+        if (dryRun) {
+          budget.reserve(BigInt(plan.costWei))
+          outcomes.push({ plan, status: 'dry-run' })
+          continue
+        }
+        if (attestorAccount === null) {
+          outcomes.push(await skip(plan, NO_ATTESTOR))
+          continue
+        }
+
+        const args = [
+          BigInt(runRecord.agentId),
+          entry.value,
+          entry.valueDecimals,
+          entry.tag1,
+          HALLMARK_TAG,
+          endpoint,
+          uri,
+          runRecord.evidenceHash,
+        ] as const
+
+        const gas = await gasLimitFor(BigInt(plan.gasLimit), () =>
+          client.estimateContractGas({
             address: chain.contracts.reputationRegistry,
             abi: reputationRegistryAbi,
             functionName: 'giveFeedback',
-            args: [
-              BigInt(runRecord.agentId),
-              encoded.value,
-              encoded.valueDecimals,
-              encoded.tag1,
-              HALLMARK_TAG,
-              endpoint,
-              uri,
-              runRecord.evidenceHash,
-            ],
+            args,
             account: attestorAccount,
-            chain: chain.chain,
-            gas: gasLimit,
-            gasPrice: gasPriceWei,
-            nonce: Number(nonce),
           }),
-        verify: async () => {
-          const after = await reader.lastFeedbackIndex(runRecord.agentId, attestorAccount.address)
-          if (after === null) return { ok: false, message: 'getLastIndex could not be read back' }
-          if (after !== before + 1) {
-            return { ok: false, message: `expected feedback index ${before + 1}, registry reports ${after}` }
-          }
-          const entry = await reader.readFeedback(runRecord.agentId, attestorAccount.address, after)
-          if (entry === null) return { ok: false, message: `readFeedback(${after}) reverted after a successful receipt` }
-          if (entry.tag1 !== encoded.tag1 || BigInt(entry.value) !== encoded.value) {
-            return {
-              ok: false,
-              message: `feedback ${after} reads back as ${entry.tag1}=${entry.value}, expected ${encoded.tag1}=${encoded.value}`,
-            }
-          }
-          return { ok: true, message: `feedback index ${after} reads back as ${entry.tag1}=${entry.value}` }
-        },
-      })
+        )
+        logger.debug('gas limit chosen', { kind: 'reputation', tag: entry.tag1, limit: gas.limit, note: gas.note })
+
+        const finalPlan: PublishPlan = {
+          ...plan,
+          gasLimit: gas.limit.toString(),
+          costWei: (gas.limit * price).toString(),
+        }
+        const refusalAfterEstimate = budget.check(BigInt(finalPlan.costWei))
+        if (refusalAfterEstimate !== null) {
+          outcomes.push(await skip(finalPlan, refusalAfterEstimate))
+          continue
+        }
+
+        const reservedWei = BigInt(finalPlan.costWei)
+        budget.reserve(reservedWei)
+
+        // 1-based, and `getLastIndex` returns the count rather than the newest
+        // index. `readFeedback(agentId, client, 0)` reverts.
+        const before = (await reader.lastFeedbackIndex(runRecord.agentId, attestorAccount.address)) ?? 0
+
+        outcomes.push(
+          await send({
+            plan: finalPlan,
+            account: attestorAccount,
+            reservedWei,
+            write: (nonce, gasLimit, gasPriceWei) =>
+              walletFor(attestorAccount).writeContract({
+                address: chain.contracts.reputationRegistry,
+                abi: reputationRegistryAbi,
+                functionName: 'giveFeedback',
+                args,
+                account: attestorAccount,
+                chain: chain.chain,
+                gas: gasLimit,
+                gasPrice: gasPriceWei,
+                nonce: Number(nonce),
+              }),
+            verify: async () => {
+              const after = await reader.lastFeedbackIndex(runRecord.agentId, attestorAccount.address)
+              if (after === null) return { ok: false, message: 'getLastIndex could not be read back' }
+              if (after !== before + 1) {
+                return { ok: false, message: `expected feedback index ${before + 1}, registry reports ${after}` }
+              }
+              const written = await reader.readFeedback(runRecord.agentId, attestorAccount.address, after)
+              if (written === null) {
+                return { ok: false, message: `readFeedback(${after}) reverted after a successful receipt` }
+              }
+              if (written.tag1 !== entry.tag1 || BigInt(written.value) !== entry.value) {
+                return {
+                  ok: false,
+                  message: `feedback ${after} reads back as ${written.tag1}=${written.value}, expected ${entry.tag1}=${entry.value}`,
+                }
+              }
+              return { ok: true, message: `feedback index ${after} reads back as ${written.tag1}=${written.value}` }
+            },
+          }),
+        )
+      }
+
+      return outcomes
     },
+
 
     async publishValidation(runRecord, requestHash) {
       const uri = evidenceUri(config.evidenceBaseUrl, runRecord.evidenceHash)
@@ -576,8 +623,8 @@ export function createPublisher(options: PublisherOptions): Publisher {
       if (runRecord.score < minScore) {
         return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
       }
-      if (requireProtocolLive && !runRecord.protocolLive) {
-        return skip(plan, PROTOCOL_LIVE_REFUSAL)
+      if (requireDeclaredProtocol && !hasSuccessRate(runRecord)) {
+        return skip(plan, NO_DECLARED_PROTOCOL)
       }
       const priceRefusal = gasPriceRefusal(price)
       if (priceRefusal !== null) return skip(plan, priceRefusal)
@@ -679,8 +726,8 @@ export function createPublisher(options: PublisherOptions): Publisher {
       if (runRecord.score < minScore) {
         return skip(plan, `score ${runRecord.score} is below the --min-score floor of ${minScore}`)
       }
-      if (requireProtocolLive && !runRecord.protocolLive) {
-        return skip(plan, PROTOCOL_LIVE_REFUSAL)
+      if (requireDeclaredProtocol && !hasSuccessRate(runRecord)) {
+        return skip(plan, NO_DECLARED_PROTOCOL)
       }
       const priceRefusal = gasPriceRefusal(price)
       if (priceRefusal !== null) return skip(plan, priceRefusal)
@@ -857,40 +904,6 @@ export function createPublisher(options: PublisherOptions): Publisher {
 /* ------------------------------------------------------------------ */
 /* pure helpers, exported so the tests can reach them                   */
 /* ------------------------------------------------------------------ */
-
-export type EncodedFeedback = { value: bigint; valueDecimals: number; tag1: FeedbackTag }
-
-/**
- * How a probe run becomes `(int128 value, uint8 valueDecimals)` under one of
- * the standard's liveness tags.
- *
- *   reachable      the 0-100 score, no decimals. What HallmarkHook reads.
- *   uptime         the share of endpoints that answered, as a percent
- *                  scaled by 100 — the standard's own "%×100" convention.
- *   responsetime   the median round trip of the endpoints that answered, in ms.
- */
-export function encodeFeedback(record: RunRecord, tag: FeedbackTag): EncodedFeedback {
-  switch (tag) {
-    case 'uptime': {
-      const share = record.scoredCount === 0 ? 0 : record.okCount / record.scoredCount
-      return { value: BigInt(Math.round(share * 10_000)), valueDecimals: 2, tag1: 'uptime' }
-    }
-    case 'responsetime': {
-      const sorted = [...record.latencies].sort((a, b) => a - b)
-      const mid = Math.floor(sorted.length / 2)
-      const value =
-        sorted.length === 0
-          ? 0
-          : sorted.length % 2 === 1
-            ? (sorted[mid] ?? 0)
-            : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
-      return { value: BigInt(Math.round(value)), valueDecimals: 0, tag1: 'responsetime' }
-    }
-    case 'reachable':
-    default:
-      return { value: BigInt(clampToUint8(record.score)), valueDecimals: 0, tag1: 'reachable' }
-  }
-}
 
 export function clampToUint8(value: number): number {
   if (!Number.isFinite(value)) return 0

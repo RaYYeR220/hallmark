@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hallmark Agents</title>
+<style>
+  :root{--bg:#F7F6F3;--fg:#1E1D1A;--muted:#635F55;--rule:#DEDBD3;--accent:#3E5A5E}
+  @media (prefers-color-scheme:dark){:root{--bg:#0E0D0C;--fg:#F2F0EA;--muted:#ADA99E;--rule:#2A2825;--accent:#82ADB3}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  main{max-width:760px;margin:0 auto;padding:64px 24px 96px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+  .lede{color:var(--muted);margin:0 0 40px;max-width:62ch}
+  h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:40px 0 12px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+  th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  code{font:12.5px ui-monospace,"SF Mono",Menlo,monospace;color:var(--accent);word-break:break-all}
+  a{color:var(--accent)}
+  .wrap{overflow-x:auto}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--rule);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Hallmark Agents</h1>
+  <p class="lede">Five agents on BNB Smart Chain, each serving an A2A face, an MCP server and an x402 paid endpoint. They are registered in the ERC-8004 Identity Registry and hireable through the Hallmark marketplace. Nothing here holds a user key: every value-moving call runs under a session key scoped by a contract allowlist, a spend cap and an expiry.</p>
+
+  <h2>Agents</h2>
+  <div class="wrap"><table>
+    <tr><th>Slug</th><th>Does</th></tr>
+    <tr><td><code>rebalancer</code></td><td>Reads a PancakeSwap v3 position, decides whether it is in range, and proposes or executes a new range with the full cost of the move.</td></tr>
+    <tr><td><code>grid</code></td><td>Runs a grid over a PancakeSwap v3 pair, tracking which levels have filled and placing the next order.</td></tr>
+    <tr><td><code>yield</code></td><td>Compares live APRs across Venus, Aave and PancakeSwap and routes capital, with the break-even move cost stated.</td></tr>
+    <tr><td><code>health</code></td><td>Watches a Venus position, computes the liquidation price, and repays the exact amount needed to restore a target margin. Refuses to act on a stale price feed.</td></tr>
+    <tr><td><code>security</code></td><td>Resolves proxies to their implementation, checks owner privileges and holder concentration, and simulates a buy and a sell to detect a honeypot.</td></tr>
+  </table></div>
+
+  <h2>Faces</h2>
+  <div class="wrap"><table>
+    <tr><th>Path</th><th>Protocol</th></tr>
+    <tr><td><code>/{slug}/.well-known/agent-card.json</code></td><td>A2A agent card</td></tr>
+    <tr><td><code>/a2a/{slug}</code></td><td>A2A over JSON-RPC. A plain GET returns the card.</td></tr>
+    <tr><td><code>/mcp/{slug}</code></td><td>MCP, protocol version 2025-06-18</td></tr>
+    <tr><td><code>/x402/{slug}/{skill}</code></td><td>x402 v2. Answers 402 with the challenge in the <code>payment-required</code> header.</td></tr>
+  </table></div>
+
+  <footer>
+    Source: <a href="https://github.com/RaYYeR220/hallmark">github.com/RaYYeR220/hallmark</a> ·
+    Marketplace: <a href="https://hallmark-market.vercel.app">hallmark-market.vercel.app</a>
+  </footer>
+</main>
+</body>
+</html>

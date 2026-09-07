@@ -1,9 +1,13 @@
-import { handle } from 'hono/vercel'
+import { handle } from '@hono/node-server/vercel'
 
 import { buildApp } from '../src/app.js'
 
 /**
  * The Vercel entry point.
+ *
+ * Node runtime, not edge, so the handler comes from @hono/node-server rather
+ * than hono/vercel — the latter returns a Web fetch handler, which the Node
+ * runtime does not invoke.
  *
  * Node runtime, not edge: the agents read chain state through viem and the
  * security agent's simulation issues a few hundred `eth_call`s, which is not

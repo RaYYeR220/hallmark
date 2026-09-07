@@ -233,28 +233,30 @@ describe('publishing refuses the permissive verdict by default', () => {
         reader: { client: {}, getAgent: async () => ({ owner: '0x1', agentId: 1n, tokenUri: '', card: null }) } as never,
         dryRun: true,
         gasPriceWei: 50_000_000n,
-        requireProtocolLive: false,
+        requireDeclaredProtocol: false,
         plannerAddress: '0x9ff98B99B6B250b3a23961EA932F4ef147B909ab',
       }),
       record,
     }
   }
 
-  it('skips a web-only agent even when it scores well', async () => {
-    const record = toRunRecord(runWith(1, [endpointProbe({ kind: 'web', protocolLive: true, latencyMs: 50 })]))
-    record.protocolLive = false
+  it('skips an agent that declares no machine-callable protocol', async () => {
+    const record = toRunRecord(runWith(1, [endpointProbe({ kind: 'web', protocolLive: false, latencyMs: 50 })]))
     const { strict } = await publisherFor(record)
-    const outcome = await strict.publishReputation(record)
-    expect(outcome.status).toBe('skipped')
-    if (outcome.status === 'skipped') expect(outcome.reason).toMatch(/protocol-live/)
+    const outcomes = await strict.publishReputation(record)
+    const first = outcomes[0]
+    expect(first?.status).toBe('skipped')
+    if (first?.status === 'skipped') expect(first.reason).toMatch(/declares no machine-callable protocol/)
   })
 
-  it('publishes it only when explicitly told to', async () => {
-    const record = toRunRecord(runWith(1, [endpointProbe({ kind: 'web', protocolLive: true, latencyMs: 50 })]))
-    record.protocolLive = false
+  it('publishes a web-only agent only when explicitly told to, and only the reachable tag', async () => {
+    const record = toRunRecord(runWith(1, [endpointProbe({ kind: 'web', protocolLive: false, latencyMs: 50 })]))
     const { loose } = await publisherFor(record)
-    const outcome = await loose.publishReputation(record)
-    expect(outcome.status).toBe('dry-run')
+    const outcomes = await loose.publishReputation(record)
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]?.status).toBe('dry-run')
+    // No successRate: there is no rate to report for an agent that declares nothing.
+    expect(outcomes[0]?.plan.args[3]).toBe('reachable')
   })
 })
 

@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.git
+contracts/lib
+contracts/out
+contracts/cache
+contracts/broadcast
+**/dist
+**/.next
+**/data
+**/coverage
+*.log

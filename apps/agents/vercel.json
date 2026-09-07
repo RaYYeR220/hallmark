@@ -1,14 +1,19 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "pnpm typecheck",
-  "installCommand": "pnpm install --filter @hallmark/agents...",
+  "buildCommand": "pnpm -F @hallmark/core -F @hallmark/altana build",
+  "installCommand": "pnpm install --filter @hallmark/agents... --frozen-lockfile=false",
   "functions": {
     "api/index.ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 60,
       "memory": 1024
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/api/index"
+    }
+  ],
+  "outputDirectory": "public"
 }
