@@ -1,0 +1,264 @@
+.lookup {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-5);
+}
+
+.lookupField {
+  flex: 1 1 22rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+}
+
+.select {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  max-width: var(--measure);
+}
+
+/* --- Key cards ----------------------------------------------------------- */
+
+.keys {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.key {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.keyHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.keyTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.keyId {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.keyBody {
+  padding: var(--sp-4);
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--sp-5);
+}
+
+@media (max-width: 52rem) {
+  .keyBody {
+    grid-template-columns: 1fr;
+    gap: var(--sp-4);
+  }
+}
+
+.scopeList {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.scopeItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sp-2);
+  line-height: var(--lh-snug);
+  padding: var(--sp-1) 0;
+}
+
+.scopeGlyph {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.can {
+  color: var(--text-ok);
+}
+
+.cannot {
+  color: var(--text-bad);
+}
+
+.neutral {
+  color: var(--text-faint);
+}
+
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.meterBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.meterHead {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.expiry {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--fs-sm);
+  align-items: baseline;
+}
+
+.expiryValue {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+}
+
+.keyActions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-4);
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+
+/* --- Refusal feed -------------------------------------------------------- */
+
+.attempts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.feed {
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.feedItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.feedRefused {
+  border-left-color: var(--text-warn);
+  background: var(--surface-warn-soft);
+}
+
+.feedAllowed {
+  border-left-color: var(--text-ok);
+  background: var(--surface-ok-soft);
+}
+
+.feedGlyph {
+  font-size: var(--fs-base);
+  line-height: 1.4;
+}
+
+.feedTitle {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: baseline;
+}
+
+.feedTime {
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+.feedDetail {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
+}
+
+.feedMeta {
+  margin-top: var(--sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.recipe {
+  margin-top: var(--sp-4);
+}

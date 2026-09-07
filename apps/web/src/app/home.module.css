@@ -1,0 +1,412 @@
+/* --- Hero ---------------------------------------------------------------- */
+
+.hero {
+  /* Real air above the fold: the claim is the only thing competing for
+     attention until the reader scrolls. */
+  min-height: min(84svh, 46rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: var(--width-page);
+  margin: 0 auto;
+  padding: var(--sp-9) var(--sp-5) var(--sp-7);
+}
+
+.heroEyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  margin-bottom: var(--sp-5);
+}
+
+.heroClaim {
+  font-size: clamp(2.25rem, 6.2vw, var(--fs-4xl));
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  font-weight: var(--fw-semibold);
+  max-width: 18ch;
+}
+
+.heroAccent {
+  color: var(--text-accent);
+}
+
+.heroLead {
+  margin-top: var(--sp-5);
+  font-size: var(--fs-md);
+  line-height: var(--lh-normal);
+  color: var(--text-secondary);
+  max-width: 52ch;
+}
+
+.heroActions {
+  margin-top: var(--sp-6);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.heroSecondary {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  text-decoration-color: var(--border-strong);
+}
+
+.heroSecondary:hover {
+  color: var(--text);
+}
+
+/* The proof strip. A claim, not a table: four numbers on one line. */
+.proofStrip {
+  margin-top: var(--sp-8);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  align-items: flex-start;
+}
+
+.proofItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 6rem;
+}
+
+.proofValue {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--lh-tight);
+}
+
+.proofLabel {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.proofNote {
+  flex-basis: 100%;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+@media (max-width: 48rem) {
+  .hero {
+    min-height: auto;
+    padding: var(--sp-8) var(--sp-4) var(--sp-6);
+  }
+
+  .proofStrip {
+    gap: var(--sp-4) var(--sp-5);
+  }
+}
+
+/* --- Sections ------------------------------------------------------------ */
+
+.band {
+  border-top: 1px solid var(--border);
+  padding: var(--sp-8) 0;
+}
+
+.bandSunken {
+  background: var(--surface-sunken);
+}
+
+.bandInner {
+  max-width: var(--width-page);
+  margin: 0 auto;
+  padding: 0 var(--sp-5);
+}
+
+@media (max-width: 48rem) {
+  .band {
+    padding: var(--sp-7) 0;
+  }
+
+  .bandInner {
+    padding: 0 var(--sp-4);
+  }
+}
+
+.bandTitle {
+  font-size: var(--fs-2xl);
+  max-width: 20ch;
+  margin-bottom: var(--sp-4);
+}
+
+.bandLead {
+  color: var(--text-secondary);
+  max-width: var(--measure);
+  font-size: var(--fs-md);
+}
+
+/* --- The problem --------------------------------------------------------- */
+
+.quote {
+  margin: var(--sp-5) 0 0;
+  padding-left: var(--sp-5);
+  border-left: 3px solid var(--border-accent);
+  max-width: var(--measure);
+}
+
+.quoteText {
+  font-size: var(--fs-lg);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-tight);
+}
+
+.quoteAttribution {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.problemGrid {
+  margin-top: var(--sp-6);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--sp-5);
+}
+
+.problemItem {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-strong);
+}
+
+.problemTitle {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  margin-bottom: var(--sp-2);
+}
+
+.problemBody {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+/* --- How it works -------------------------------------------------------- */
+
+.steps {
+  margin-top: var(--sp-6);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--sp-5);
+  counter-reset: step;
+}
+
+.step {
+  position: relative;
+  padding: var(--sp-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  counter-increment: step;
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-accent-soft);
+  color: var(--text-accent);
+  border: 1px solid var(--border-accent);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--sp-3);
+}
+
+.stepTitle {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  margin-bottom: var(--sp-2);
+}
+
+.stepBody {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.stepBody code {
+  color: var(--text);
+  background: var(--surface-sunken);
+  padding: 0.05em 0.3em;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+}
+
+/* --- Categories ---------------------------------------------------------- */
+
+.categories {
+  margin-top: var(--sp-6);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--sp-4);
+}
+
+.category {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  text-decoration: none;
+  transition:
+    border-color var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease);
+}
+
+.category:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.categoryName {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.categorySummary {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.categoryScope {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-faint);
+}
+
+.categoryScope strong {
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+
+.categoryCta {
+  font-size: var(--fs-xs);
+  color: var(--text-accent);
+  font-weight: var(--fw-medium);
+}
+
+/* --- The refusal --------------------------------------------------------- */
+
+.refusalLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+  margin-top: var(--sp-5);
+}
+
+@media (max-width: 56rem) {
+  .refusalLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.refusalCopy > * + * {
+  margin-top: var(--sp-4);
+}
+
+.refusalBody {
+  color: var(--text-secondary);
+  max-width: var(--measure);
+}
+
+.revert {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.revertHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-bad-soft);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--text-bad);
+}
+
+.revertBody {
+  padding: var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-loose);
+  color: var(--text-secondary);
+  overflow-x: auto;
+}
+
+.revertLine {
+  white-space: pre;
+}
+
+.revertHighlight {
+  color: var(--text-bad);
+  font-weight: var(--fw-semibold);
+}
+
+.revertFooter {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  align-items: baseline;
+}
+
+/* --- Closing CTA --------------------------------------------------------- */
+
+.closing {
+  text-align: left;
+  max-width: var(--width-prose);
+}
+
+.closingTitle {
+  font-size: var(--fs-2xl);
+  margin-bottom: var(--sp-4);
+}
+
+.closingBody {
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-5);
+}
+
+.closingActions {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+/* --- Skeletons ----------------------------------------------------------- */
+
+.stripSkeleton {
+  display: flex;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}

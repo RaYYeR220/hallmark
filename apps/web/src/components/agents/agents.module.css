@@ -1,0 +1,378 @@
+/* --- Filters ------------------------------------------------------------- */
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+.searchRow {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.searchField {
+  flex: 1 1 18rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.input::placeholder {
+  color: var(--text-faint);
+}
+
+.searchModes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  align-items: center;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.searchModes label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The hint takes its own line rather than competing with the two radios for
+   horizontal space, which is what made it collide on a narrow viewport. */
+.searchModes .filterHint {
+  flex-basis: 100%;
+}
+
+@media (min-width: 56rem) {
+  .searchModes .filterHint {
+    flex: 1 1 16rem;
+  }
+}
+
+.controlRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-end;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.controlLabel {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.select {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  min-width: 9rem;
+}
+
+.filterActions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.filterHint {
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  line-height: var(--lh-snug);
+}
+
+/* --- Category rail ------------------------------------------------------- */
+
+.categoryRail {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.categoryPill {
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.categoryPill:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.categoryPillActive {
+  background: var(--surface-accent-soft);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+  font-weight: var(--fw-medium);
+}
+
+/* --- Result meta --------------------------------------------------------- */
+
+.resultBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  align-items: baseline;
+  justify-content: space-between;
+  margin: var(--sp-5) 0 var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.resultCount {
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+
+/* --- List ---------------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.rowHead {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2.4fr) minmax(7.5rem, 0.9fr) minmax(6rem, 0.7fr)
+    minmax(5.5rem, 0.6fr) minmax(5.5rem, 0.6fr);
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4) var(--sp-2);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-2);
+}
+
+.row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2.4fr) minmax(7.5rem, 0.9fr) minmax(6rem, 0.7fr)
+    minmax(5.5rem, 0.6fr) minmax(5.5rem, 0.6fr);
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-sunken);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  object-fit: cover;
+  flex: none;
+}
+
+.avatarFallback {
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.identityText {
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.agentId {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+.description {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cell {
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+
+.cellLabel {
+  display: none;
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 0.15rem;
+}
+
+.cellValue {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.cellMuted {
+  color: var(--text-faint);
+}
+
+.cellNote {
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  margin-top: 0.1rem;
+}
+
+.protocolRow {
+  display: flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 68rem) {
+  .rowHead {
+    display: none;
+  }
+
+  .row {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+  }
+
+  .identity {
+    grid-column: 1 / -1;
+  }
+
+  .cellLabel {
+    display: block;
+  }
+}
+
+@media (max-width: 30rem) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Pagination ---------------------------------------------------------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.pageInfo {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pageLinks {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* --- Skeleton row -------------------------------------------------------- */
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2.4fr) minmax(7.5rem, 0.9fr) minmax(6rem, 0.7fr)
+    minmax(5.5rem, 0.6fr) minmax(5.5rem, 0.6fr);
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+@media (max-width: 68rem) {
+  .skeletonRow {
+    grid-template-columns: 1fr;
+  }
+}

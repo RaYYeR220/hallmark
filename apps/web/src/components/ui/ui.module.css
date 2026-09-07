@@ -1,0 +1,474 @@
+/* Shared primitives. Every value here resolves to a token. */
+
+/* --- Surfaces ------------------------------------------------------------ */
+
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+}
+
+.cardFlush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cardMuted {
+  background: var(--surface-sunken);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.cardTitle {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+
+.cardMeta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* --- Section headings ---------------------------------------------------- */
+
+.section {
+  margin-bottom: var(--sp-4);
+}
+
+.eyebrow {
+  display: block;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+}
+
+.sectionTitle {
+  font-size: var(--fs-xl);
+  margin-bottom: var(--sp-2);
+}
+
+.sectionLead {
+  color: var(--text-secondary);
+  max-width: var(--measure);
+}
+
+/* --- Badges and chips ---------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0.15rem var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.badgeOk {
+  background: var(--surface-ok-soft);
+  border-color: color-mix(in srgb, var(--text-ok) 30%, transparent);
+  color: var(--text-ok);
+}
+
+.badgeWarn {
+  background: var(--surface-warn-soft);
+  border-color: color-mix(in srgb, var(--text-warn) 30%, transparent);
+  color: var(--text-warn);
+}
+
+.badgeBad {
+  background: var(--surface-bad-soft);
+  border-color: color-mix(in srgb, var(--text-bad) 30%, transparent);
+  color: var(--text-bad);
+}
+
+.badgeAccent {
+  background: var(--surface-accent-soft);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+.badgeInfo {
+  background: var(--surface-info-soft);
+  border-color: color-mix(in srgb, var(--text-info) 30%, transparent);
+  color: var(--text-info);
+}
+
+.dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  flex: none;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--text-faint);
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonPrimary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: var(--fw-semibold);
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.buttonGhost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.buttonGhost:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.buttonDanger {
+  border-color: color-mix(in srgb, var(--text-bad) 40%, transparent);
+  color: var(--text-bad);
+}
+
+.buttonDanger:hover:not(:disabled) {
+  background: var(--surface-bad-soft);
+}
+
+.buttonLarge {
+  padding: var(--sp-3) var(--sp-5);
+  font-size: var(--fs-base);
+  border-radius: var(--radius-md);
+}
+
+.buttonSmall {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+/* --- Callouts ------------------------------------------------------------ */
+
+.callout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  background: var(--surface-sunken);
+  font-size: var(--fs-sm);
+}
+
+.calloutTitle {
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.calloutBody {
+  color: var(--text-secondary);
+}
+
+.calloutBody > * + * {
+  margin-top: var(--sp-2);
+}
+
+.calloutOk {
+  border-left-color: var(--text-ok);
+  background: var(--surface-ok-soft);
+}
+
+.calloutWarn {
+  border-left-color: var(--text-warn);
+  background: var(--surface-warn-soft);
+}
+
+.calloutBad {
+  border-left-color: var(--text-bad);
+  background: var(--surface-bad-soft);
+}
+
+.calloutInfo {
+  border-left-color: var(--text-info);
+  background: var(--surface-info-soft);
+}
+
+.calloutAccent {
+  border-left-color: var(--accent);
+  background: var(--surface-accent-soft);
+}
+
+/* --- Stats --------------------------------------------------------------- */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--sp-4);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.statValue {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+}
+
+.statValueSmall {
+  font-size: var(--fs-lg);
+}
+
+.statLabel {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.statNote {
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+/* --- Definition rows ----------------------------------------------------- */
+
+.rows {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 14rem) 1fr;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--border-faint);
+  align-items: baseline;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowLabel {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+
+.rowValue {
+  font-size: var(--fs-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1);
+  }
+}
+
+/* --- Empty state --------------------------------------------------------- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-6) var(--sp-5);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+}
+
+.emptyTitle {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+
+.emptyBody {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  max-width: var(--measure);
+}
+
+/* --- Meter --------------------------------------------------------------- */
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.meterTrack {
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  background: var(--data-1);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+.meterFillWarn {
+  background: var(--text-warn);
+}
+
+.meterFillBad {
+  background: var(--text-bad);
+}
+
+.meterLabels {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Skeleton ------------------------------------------------------------ */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 0%,
+    var(--border-faint) 50%,
+    var(--surface-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--surface-sunken);
+  }
+}
+
+/* --- Code / hash --------------------------------------------------------- */
+
+.code {
+  display: block;
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-secondary);
+}
+
+.codeWrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Misc ---------------------------------------------------------------- */
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--sp-5) 0;
+}
+
+.inlineList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  list-style: none;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.sourceNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
