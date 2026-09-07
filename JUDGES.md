@@ -98,8 +98,11 @@ cd apps/prober && pnpm tsx src/cli.ts sweep --chain 56 --sample 3000 --seed 42
 
 ## 4. Where the evidence lives (60 seconds)
 
-**36 attestations written to the ERC-8004 Reputation Registry on BSC mainnet**, from
-`0x9ff98B99B6B250b3a23961EA932F4ef147B909ab`, across 18 agents. They are already in 8004scan's index.
+**86 attestations written to the ERC-8004 Reputation Registry on BSC mainnet**, from
+`0x9ff98B99B6B250b3a23961EA932F4ef147B909ab`, across 34 agents — and they carry **both verdicts**:
+`reachable` 100 or 0, and `successRate` 100 for an agent that proved its protocol, 0 for one that
+declares a protocol and does not speak it. An agent we never reached gets nothing written at all,
+because a zero there would describe our inaction rather than their failure.
 
 ```bash
 cast call 0x8004BAa17C55a88189AE136b182e5fdA19dE9b63 \

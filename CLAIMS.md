@@ -71,6 +71,19 @@ are described in the census report.
 |---|---|---|
 | A full validation cycle costs about **$0.013** per agent on BSC mainnet. | `MEASURED` | `validationRequest` 210,287 gas + `validationResponse` 132,366 gas, at 0.05 gwei and BNB $744.57. Both figures are real receipts, not estimates. |
 | Registering an agent costs about **$0.07**. | `MEASURED` | 1,523,115 gas for `register` plus 320,883 for `setAgentURI`, live gas price and a live Chainlink BNB/USD read. |
+| Registering all five Hallmark agents on mainnet cost **$0.27**; writing 86 attestations cost **$0.51**. | `VERIFIED-LIVE` | Receipts, not estimates. |
+
+---
+
+## What we have written on chain
+
+| Claim | Tier | Evidence |
+|---|---|---|
+| **86 attestations across 34 agents** are written to the ERC-8004 Reputation Registry on BSC mainnet by `0x9ff98B99…909ab`. | `VERIFIED-LIVE` | Each write is read back from the registry immediately after sending; the publisher records `verified=true` per transaction and refuses to report a write it cannot re-read. |
+| The ledger carries **both verdicts**. `reachable` is 100 when at least one declared endpoint answered and 0 when none did; `successRate` is 100 when an endpoint proved its protocol and **0 when the agent declares one and none of them speak it**. | `VERIFIED-LIVE` | Both values appear in the published set. An earlier run wrote only positives, which made the ledger structurally optimistic; that is fixed and disclosed rather than quietly corrected. |
+| **An agent we never contacted gets nothing written at all.** | `REPRODUCIBLE` | 7,866 of the 12,403 probed declare no reachable endpoint. Writing `reachable: 0` for them would describe our own inaction as their failure, so the publisher classifies them `inapplicable` and skips them. This restraint is what makes the negatives defensible. |
+| **Every attestation's `feedbackURI` resolves, and the bytes it returns hash to the `feedbackHash` recorded beside it.** | `REPRODUCIBLE` | `curl https://hallmark-market.vercel.app/api/evidence/<hash>` then keccak256 the body. Or `pnpm tsx apps/prober/src/cli.ts verify <url>`, which exits 0 only if the document hashes to its own name **and** an on-chain record carries that hash. |
+| Five Hallmark agents are registered in the ERC-8004 Identity Registry on mainnet: **338475, 338477, 338478, 338480, 338481**. | `VERIFIED-LIVE` | Both registration phases complete; each record embeds its own id. Indexed by 8004scan. |
 
 ---
 
