@@ -7,6 +7,6 @@ contracts/cache
 contracts/broadcast
 **/dist
 **/.next
-**/data
+apps/prober/data
 **/coverage
 *.log

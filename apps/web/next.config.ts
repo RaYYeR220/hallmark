@@ -17,6 +17,15 @@ const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: workspaceRoot,
+  /**
+   * Evidence bundles are read by a computed path, so tracing cannot find them.
+   * They have to ship: every attestation we have written on chain carries a
+   * feedbackURI pointing at this route, and a 404 there would make the hash
+   * we recorded unverifiable.
+   */
+  outputFileTracingIncludes: {
+    '/api/evidence/[hash]': ['./data/evidence/**'],
+  },
   serverExternalPackages: ['@altananetwork/sdk', 'porto'],
   images: {
     // Agent card images are arbitrary third-party URLs pulled from tokenURIs.
