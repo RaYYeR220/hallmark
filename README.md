@@ -29,7 +29,7 @@ contract, same function, same arguments except the agent id.
 | Agent | Evidence on chain | Result |
 |---|---|---|
 | `2000` — a real third-party agent nobody has validated | none | **reverted** `NoFreshEvidence(2000, 0)` |
-| `2210` — validated, score 92, tag `liveness` | ERC-8004 Validation Registry | **funded** |
+| `2210` — validated, score 90, tag `reachable` | ERC-8004 Validation Registry | **funded** |
 
 The gate is not consulting a private database. Agent `2210` became hireable at the moment a
 validation was written for it, and `isHireable()` reads that straight from the registry.
@@ -140,6 +140,17 @@ forge script script/Deploy.s.sol:Deploy --rpc-url bsc_testnet --broadcast
 - **The Hallmark validator address is not the agent operator address.** They are deliberately
   separate keys so that a validation is not a self-attestation. The probe harness is public and
   evidence bundles are content-addressed, so any score we publish can be independently re-derived.
+- **The demo deployment's freshness window is 30 days, and that is a deployment setting.** The
+  contract ships a 24-hour default and caps the setter at `MAX_EVIDENCE_AGE_LIMIT = 30 days`. The
+  testnet deployment runs the ceiling so a reviewer arriving two weeks from now still sees the
+  refusal work without a keeper re-attesting daily. Nothing hard-codes it: every surface reads
+  `maxEvidenceAge()` and prints whatever the contract will actually enforce.
+- **Our own validator was, for a day, the thing this project complains about.** Agent `2210` was
+  registered against `hallmark.market` — a domain nobody bought — so a probe of it scored zero,
+  while the Validation Registry carried a 92 that our scorer cannot produce. It had been written by
+  hand. The endpoints exist now, the registration is derived from a live read of the card and
+  refuses to be written if anything it names is silent, and the score is the prober's. The
+  superseded entries are still on chain; we did not revoke the evidence of our own mistake.
 - **Gas matters more than it should.** `complete` and `reject` must be sent with an explicit gas limit
   of roughly 450,000. `eth_estimateGas` finds the smallest limit under which the *outer* call
   succeeds, which is not the same as the limit under which the hook's reputation write succeeds. The

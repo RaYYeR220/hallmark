@@ -59,11 +59,13 @@ are described in the census report.
 
 | Claim | Tier | Evidence |
 |---|---|---|
-| The escrow and hook pass **171 tests**, including three invariants at 128 runs × 64 depth. | `REPRODUCIBLE` | `cd contracts && forge test`. |
+| The escrow and hook pass **228 tests**, including three invariants at 128 runs × 64 depth. | `REPRODUCIBLE` | `cd contracts && forge test`. |
 | Funding a job for an agent with no fresh evidence **reverts on chain** with `NoFreshEvidence`. | `VERIFIED-LIVE` | A deliberately reverted transaction is linked in `PROOF.md`. Selector `0x8b12be6b`. |
 | The gate reads the live ERC-8004 registries, not a private table. | `VERIFIED-LIVE` | An agent became hireable at the moment a validation was written for it, and unhireable agents are third-party agents nobody has validated. |
 | A settled job causes the hook to write reputation into ERC-8004. | `VERIFIED-LIVE` | After settlement, the hook's address appears in `getClients` for that agent and `getSummary` returns the written value. |
 | `claimRefund` cannot be blocked by a hook. | `REPRODUCIBLE` | A test funds a job with a hook that reverts on every callback and shows the refund still executes. |
+| Hallmark's own validator, agent `2210`, scores **90** on the same rubric as everyone else. | `VERIFIED-LIVE` | `pnpm probe probe --agent 2210 --chain 97` re-derives it: 45 reachability + 15 latency + 15 MCP + 15 A2A + **0 x402**. The 0 is real — it sells nothing. |
+| The demo deployment's freshness window is **30 days**, not the contract's 24-hour default. | `VERIFIED-LIVE` | `cast call <hook> "maxEvidenceAge()(uint256)"` returns 2592000, the contract's own `MAX_EVIDENCE_AGE_LIMIT`. Every surface reads it live rather than printing a constant. |
 
 ---
 
@@ -104,5 +106,15 @@ Things a reader might reasonably infer that we are **not** saying.
 - **We are not claiming our validator is neutral by construction.** It is a key we control. What makes a
   score checkable is that the harness is public and the evidence bundle is content-addressed, so anyone can
   re-derive it — not that we are disinterested.
+- **We are not claiming the demo's 30-day window is what a production marketplace should run.** It is not.
+  The contract ships a 24-hour default and we widened the deployment to the ceiling so the refusal stays
+  reproducible for a reviewer without a keeper process re-attesting daily. The mechanism is the claim; the
+  number is a deployment setting, it is on chain, and every page reads it rather than asserting one.
+- **We are not claiming our first attempt at this was honest.** Until 8 September agent 2210's registration
+  named endpoints on a domain nobody registered, and carried a hand-written validation of 92 — a score our
+  own scorer cannot produce, since 90 is its ceiling without x402. We found it by probing ourselves, fixed
+  the endpoints, and replaced the number with one the prober derived. The two superseded reputation entries
+  are still on chain, still pointing at the dead URI, because deleting the record of a mistake is worse
+  than the mistake.
 - **We are not claiming the marketplace has users.** It has agents, evidence and a working hire path.
   Adoption is not a thing we can honestly claim on day one, and we would rather say so than pad a number.

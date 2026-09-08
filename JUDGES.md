@@ -15,14 +15,14 @@ Same contract, same function, same arguments except the agent id.
 | | Transaction | Result |
 |---|---|---|
 | Agent **2000** — a real third-party agent nobody has ever validated | [`0x8c8c0ce2…3a6270`](https://testnet.bscscan.com/tx/0x8c8c0ce24880bb4dfc0491fab9ab54e141252589755dd04db5eecfb1003a6270) | **Reverted.** `NoFreshEvidence(2000, 0)`, selector `0x8b12be6b`, 85,520 gas burned |
-| Agent **2210** — validated, score 92, tag `liveness` | [fund `0xc55ccf99…a35fe9`](https://testnet.bscscan.com/tx/0xc55ccf99b175d6ecac21f5a601f6305542139260ed222453080a34a90fa35fe9) → [complete `0xf03c3873…3989e1`](https://testnet.bscscan.com/tx/0xf03c3873d268197d6f405c87e2d6bbfd62d1faec1130583a7391013a643989e1) | Funded, delivered, settled — and the hook wrote the rating itself |
+| Agent **2210** — validated, score 90, tag `reachable` | [fund `0xc55ccf99…a35fe9`](https://testnet.bscscan.com/tx/0xc55ccf99b175d6ecac21f5a601f6305542139260ed222453080a34a90fa35fe9) → [complete `0xf03c3873…3989e1`](https://testnet.bscscan.com/tx/0xf03c3873d268197d6f405c87e2d6bbfd62d1faec1130583a7391013a643989e1) | Funded, delivered, settled — and the hook wrote the rating itself |
 
 The gate is not reading a database of ours. Agent 2210 became hireable the moment a validation was
 written for it, and you can watch the read happen:
 
 ```bash
 cast call 0xcD71a680cAFb5aC1d269B5B6A90Fa0198ad78897 "isHireable(uint256)(bool,uint64,uint8)" 2210 \
-  --rpc-url https://bsc-testnet-rpc.publicnode.com     # true,  1788775478, 92
+  --rpc-url https://bsc-testnet-rpc.publicnode.com     # true,  1788902107, 90
 cast call 0xcD71a680cAFb5aC1d269B5B6A90Fa0198ad78897 "isHireable(uint256)(bool,uint64,uint8)" 2000 \
   --rpc-url https://bsc-testnet-rpc.publicnode.com     # false, 0, 0
 ```
@@ -35,6 +35,21 @@ cast call 0x8004B663056A597Dffe9eCcC1965A193B7388713 \
   2210 "[0xcD71a680cAFb5aC1d269B5B6A90Fa0198ad78897]" "jobcompleted" "" \
   --rpc-url https://bsc-testnet-rpc.publicnode.com     # 1, 100, 0
 ```
+
+Agent 2210 is Hallmark's own validator, and it is worth saying what it scores and why. **90/100** is
+the ceiling for this agent, not a near miss: 45 for reachability, 15 for latency, 15 for an MCP face
+that enumerates tools, 15 for an A2A face that declares skills — and **0 for x402, because it sells
+nothing**. An attestor that charged for the answer to "is this evidence real?" would have a reason to
+prefer an answer. Ten points is the right price for not having one.
+
+It was not always this honest. Until 8 September the agent's registration named three endpoints on
+`hallmark.market`, a domain nobody ever registered, and carried a validation of 92 — a number our own
+scorer cannot produce, because 90 is its ceiling without x402. It had been written by hand rather than
+derived from a probe. That is precisely the defect this project measures in everyone else, and we were
+an instance of it. The endpoints now exist and answer, the registration is
+[derived from a live `GET` of the card](./apps/web/scripts/validator-registration.mjs) and refuses to
+be written if any declared endpoint is silent, and the 90 came out of the same prober, on the same
+rubric, as every other number here.
 
 ---
 

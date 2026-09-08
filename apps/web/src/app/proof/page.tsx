@@ -632,6 +632,23 @@ async function ProofPair() {
   const snapshot = await getProofSnapshot(DEMO_CHAIN_ID)
   const receipt = snapshot.settlementReceipt
 
+  // Read the settled agent's evidence rather than restating it.
+  //
+  // This block used to carry a hard-coded "score 92, tag liveness, within
+  // 24h". All three drifted the moment the agent was re-probed, and a proof
+  // page that quotes a number the chain no longer holds is worse than one that
+  // quotes nothing. Everything here now comes from the same read the rest of
+  // the page renders.
+  const settledEvidence = snapshot.evidenceWrites
+    .filter((write) => write.agentId === settled.agentId && write.kind === 'validation')
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0]
+  const settledScore =
+    settledEvidence?.score ??
+    snapshot.ourAgents.find((agent) => agent.agentId === settled.agentId)?.score ??
+    null
+  const window =
+    snapshot.gate === null ? null : formatDuration(snapshot.gate.maxEvidenceAgeSeconds)
+
   return (
     <Card id="pair">
       <SectionHeading
@@ -688,14 +705,20 @@ async function ProofPair() {
               <span aria-hidden="true">✓</span> Funded, delivered, settled
             </span>
             <span className={styles.pairAgent}>
-              Agent #{settled.agentId} — validated, score 92, tag <code>liveness</code>
+              Agent #{settled.agentId} — validated
+              {settledScore === null ? '' : `, score ${settledScore}`}
+              {settledEvidence === undefined ? null : (
+                <>
+                  , tag <code>{settledEvidence.tag}</code>
+                </>
+              )}
             </span>
           </div>
           <div className={styles.pairBody}>
             <code className={styles.pairCode}>
               {`fund(jobId, budget, abi.encode(${settled.agentId}))
   ↳ HallmarkHook.beforeAction(fund)
-  ✓ evidence 92/100, within 24h
+  ✓ evidence ${settledScore ?? '?'}/100, within ${window ?? 'the gate’s window'}
   ↳ escrow funded
 complete(jobId, reason)
   ↳ HallmarkHook.afterAction(complete)
