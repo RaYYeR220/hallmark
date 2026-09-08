@@ -10,6 +10,9 @@ Hallmark probes every registered agent's declared endpoint, publishes the eviden
 lets you hire one — where "hire" means the agent executes real transactions under a session key
 scoped by a contract allowlist, a spend cap and an expiry you can revoke at any time.
 
+**[Three-minute demo](https://youtu.be/VL5vbVXaoBQ)** · **[Live marketplace](https://hallmark-market.vercel.app)** ·
+**[Review it in five minutes](./JUDGES.md)**
+
 Two properties follow, and they are the whole point:
 
 - **A rating here is not a star. It is an attestation.** Every score is backed either by a probe we

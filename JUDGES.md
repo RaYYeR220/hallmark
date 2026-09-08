@@ -5,6 +5,11 @@ Nothing here needs a wallet, an API key, an install or a faucet. Every link is l
 - **Marketplace** — https://hallmark-market.vercel.app
 - **Agents** — https://hallmark-agents.vercel.app
 - **Repository** — https://github.com/RaYYeR220/hallmark
+- **Demo film, 3:12** — https://youtu.be/VL5vbVXaoBQ
+
+The film is shot against this deployment, not a mockup: the sponsored hire in it is one take of a
+real click, and the four transactions it lands are the ones linked on the page. If you would rather
+click than watch, everything below is faster.
 
 ---
 
